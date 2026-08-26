@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sistema de Monitoramento de Hidrantes e Sprinklers</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-header">
+    <img src="logo_cbmpe.png" alt="Corpo de Bombeiros Militar de Pernambuco" class="title-logo" />
+    <div class="login-header-text">
+      <h1>Sistema de Monitoramento de Hidrantes e Sprinklers</h1>
+      <div class="login-header-sub">Corpo de Bombeiros Militar de Pernambuco – Acesso restrito</div>
+    </div>
+  </div>
+
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-logo">
+        <img src="logo_cbmpe.png" alt="CBMPE">
+      </div>
+      <h2>Login do Sistema</h2>
+      <p>Informe usuário e senha para acessar o monitoramento.</p>
+      <form id="login-form">
+        <label for="login-user">Usuário</label>
+        <input id="login-user" type="text" autocomplete="username" required>
+        <label for="login-pass">Senha</label>
+        <input id="login-pass" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+        <div id="login-error" class="login-error"></div>
+        <div class="login-hint">
+          Exemplos:<br>
+          operador / 1234 &nbsp;•&nbsp; supervisor / 5678 &nbsp;•&nbsp; comando / 9999
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="login-footer">© 2025 Corpo de Bombeiros Militar de Pernambuco – Uso interno.</div>
+</div>
+
+<div id="app-root" class="app" style="display:none;">
+  <header class="app-header">
+    <div class="title">
+      <img src="logo_cbmpe.jpg" alt="Corpo de Bombeiros Militar de Pernambuco" class="title-logo" />
+      <div>
+        <h1>Sistema de Monitoramento de Hidrantes e Sprinklers</h1>
+        <div class="status-pills">
+          <span class="pill"><span class="dot ok"></span> Operacionais: <span id="count-ok">0</span></span>
+          <span class="pill"><span class="dot warn"></span> Atenção: <span id="count-warn">0</span></span>
+          <span class="pill"><span class="dot fail"></span> Falhas: <span id="count-fail">0</span></span>
+          <span class="pill"><span class="dot ok"></span> Hidrantes: <span id="count-hidrantes">0</span></span>
+          <span class="pill"><span class="dot ok"></span> Sprinklers: <span id="count-sprinklers">0</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="toggle-audio">🔔 Alarme: Desligado</button>
+      <button class="btn" id="report-btn">📊 Relatórios</button>
+      <button class="btn danger" id="logout-btn">🚪 Sair</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="sidebar">
+      <header>
+        <h2>Alertas Recentes</h2>
+        <div class="tools">
+          <button class="btn" id="download-alerts">⬇️ Baixar lista</button>
+          <button class="btn" id="history-alerts">📜 Histórico de Alertas</button>
+          <button class="btn danger" id="clear-alerts">🧹 Limpar Histórico</button>
+        </div>
+      </header>
+      <div class="alerts" id="alerts"></div>
+    </aside>
+    <div id="map"></div>
+  </div>
+</div>
+
+<div id="dashPanel">
+  <div class="panel-head">
+    <strong>Dashboard de Status</strong>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn" id="btn-dl-summary">⬇️ Resumo (CSV)</button>
+      <button class="btn" id="btn-dl-bar">⬇️ Colunas</button>
+      <button class="btn" id="btn-dl-pie">⬇️ Pizza</button>
+      <button class="btn" id="btn-dl-charts">⬇️ Gráficos (PNG)</button>
+      <button class="btn" id="btn-dl-pdf">⬇️ Relatório (PDF)</button>
+      <button class="btn ghost" id="btn-legend">ℹ️ Legenda</button>
+      <button class="btn ghost" id="btn-close-dash">✖</button>
+      <button class="btn" id="btn-close-dash-2">Fechar</button>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="card"><canvas id="chartStatus" height="170"></canvas></div>
+    <div class="card"><canvas id="chartDonut" height="190"></canvas></div>
+    <div class="card"><canvas id="chartAlertTypes" height="190"></canvas></div>
+    <div class="card"><canvas id="chartPressure" height="190"></canvas></div>
+  </div>
+</div>
+
+<div id="legendModal" class="modal">
+  <div class="box">
+    <div class="head"><strong>Legenda de Códigos de Falha</strong><button class="btn ghost" id="legendClose">✖</button></div>
+    <div class="body">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr style="text-align:left; border-bottom:1px solid #eee;"><th style="padding:8px; width:160px;">Código</th><th style="padding:8px;">Descrição</th><th style="padding:8px; width:40%;">Recomendação</th></tr></thead>
+        <tbody id="legendBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="historyModal" class="modal">
+  <div class="box">
+    <div class="head"><strong>Histórico de Alertas</strong><div><button class="btn" id="history-pdf">⬇️ PDF</button><button class="btn" id="history-xlsx">⬇️ XLSX</button><button class="btn ghost" id="historyClose">✖</button></div></div>
+    <div class="body"><table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr style="text-align:left; border-bottom:1px solid #eee;"><th style="padding:8px;">Data/Hora</th><th style="padding:8px;">Equipamento</th><th style="padding:8px;">Local</th><th style="padding:8px;">Tipo</th><th style="padding:8px;">Mensagem</th></tr></thead><tbody id="historyBody"></tbody></table></div>
+    <div class="foot"><button class="btn" id="historyClose2">Fechar</button></div>
+  </div>
+</div>
+
+<div id="detailsModal" class="modal">
+  <div class="box">
+    <div class="head"><strong id="detailsTitle">Detalhes</strong><button class="btn ghost" id="detailsClose">✖</button></div>
+    <div class="body" id="detailsBody"></div>
+    <div class="foot" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="detailsNotify">📨 Notificar (e-mail/SMS/WhatsApp)</button></div>
+      <button class="btn danger" id="btn-emergencia">🚨 EMERGÊNCIA</button>
+      <button class="btn ghost" id="detailsClose2">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

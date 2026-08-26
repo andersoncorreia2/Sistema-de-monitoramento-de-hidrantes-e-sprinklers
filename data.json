@@ -1,0 +1,17 @@
+{
+  "users": {
+    "operador": { "password": "1234", "role": "Operador" },
+    "supervisor": { "password": "5678", "role": "Supervisor" },
+    "comando": { "password": "9999", "role": "Comando" }
+  },
+  "equipamentos": [
+    { "id": "H-001", "tipo": "Hidrante", "status": "operacional", "locName": "Cais do Apolo, Recife", "coords": [-8.0610, -34.8711], "dados": { "agua": "OK", "pressao_bar": 7.8, "vazao_lpm": 950 }, "responsavel": { "nome": "Carlos Silva", "tel": "+55 81 91234-0001", "email": "carlos@recife.pe.gov.br" } },
+    { "id": "S-002", "tipo": "Sprinkler", "status": "atencao", "locName": "Rua da Aurora, Recife", "coords": [-8.0585, -34.8810], "dados": { "pressao_bar": 1.6, "integridade": "bom" }, "responsavel": { "nome": "Mariana Souza", "tel": "+55 81 91345-0002", "email": "mariana@segurb.com" } },
+    { "id": "H-003", "tipo": "Hidrante", "status": "falha", "locName": "Shopping Recife, Boa Viagem", "coords": [-8.1196, -34.9046], "dados": { "agua": "BAIXA", "pressao_bar": 2.1, "vazao_lpm": 300 }, "responsavel": { "nome": "Ricardo Nascimento", "tel": "+55 81 91111-0003", "email": "ricardo@shoppingrecife.com" } },
+    { "id": "S-004", "tipo": "Sprinkler", "status": "operacional", "locName": "Hospital da Restauração, Derby", "coords": [-8.0565, -34.9028], "dados": { "pressao_bar": 2.6, "integridade": "bom" }, "responsavel": { "nome": "Ana Lira", "tel": "+55 81 91777-0004", "email": "ana.lira@hrpe.org" } },
+    { "id": "H-005", "tipo": "Hidrante", "status": "operacional", "locName": "UFPE - Cidade Universitária", "coords": [-8.0558, -34.9513], "dados": { "agua": "OK", "pressao_bar": 8.2, "vazao_lpm": 1020 }, "responsavel": { "nome": "Prof. João Melo", "tel": "+55 81 91666-0005", "email": "joao.melo@ufpe.br" } },
+    { "id": "S-006", "tipo": "Sprinkler", "status": "falha", "locName": "Paço Alfândega / Porto Digital", "coords": [-8.0632, -34.8730], "dados": { "pressao_bar": 0.9, "integridade": "danificado" }, "responsavel": { "nome": "Beatriz Andrade", "tel": "+55 81 91555-0006", "email": "beatriz@portodigital.org" } },
+    { "id": "H-007", "tipo": "Hidrante", "status": "operacional", "locName": "Alto da Sé, Olinda", "coords": [-8.0100, -34.8545], "dados": { "agua": "OK", "pressao_bar": 7.2, "vazao_lpm": 890 }, "responsavel": { "nome": "Pedro Albuquerque", "tel": "+55 81 91444-0007", "email": "pedro@olinda.pe.gov.br" } },
+    { "id": "S-008", "tipo": "Sprinkler", "status": "atencao", "locName": "Rua do Bom Jesus, Recife Antigo", "coords": [-8.0622, -34.8719], "dados": { "pressao_bar": 1.8, "integridade": "obstruído" }, "responsavel": { "nome": "Luiza Farias", "tel": "+55 81 91333-0008", "email": "luiza@recifeantigo.org" } }
+  ]
+}
