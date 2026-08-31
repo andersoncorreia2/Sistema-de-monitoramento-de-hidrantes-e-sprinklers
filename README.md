@@ -2,7 +2,7 @@
 
 ![Tela Principal do Painel](imagens/painel.png)
 
-![Painel de Gestão de Efetivo](imagens/gestao.png)
+![Painel de Gestão de Efetivo](imagens/gestão.png)
 
 ![Tela de Cadastro de Efetivo](imagens/cadastro.png)
 
