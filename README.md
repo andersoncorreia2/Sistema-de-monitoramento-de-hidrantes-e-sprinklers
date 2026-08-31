@@ -4,6 +4,8 @@
 
 ![Painel de Gestão de Efetivo](imagens/gestao.png)
 
+![Tela de Cadastro de Efetivo](imagens/cadastro.png)
+
 Um sistema de missão crítica projetado para o Corpo de Bombeiros, permitindo o monitoramento em tempo real de equipamentos de proteção contra incêndio urbanos e prediais, integrando simulação de sensores IoT, um painel de comando web responsivo e um banco de dados relacional.
 
 ## 🚀 Funcionalidades Principais
