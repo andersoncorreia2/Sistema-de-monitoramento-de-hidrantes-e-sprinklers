@@ -38,8 +38,28 @@
         <label for="login-user">Usuário</label>
         <input id="login-user" type="text" autocomplete="username" required>
         <label for="login-pass">Senha</label>
-        <input id="login-pass" type="password" autocomplete="current-password" required>
+        <div style="position: relative;">
+          <input id="login-pass" type="password" autocomplete="current-password" required style="width: 100%; padding-right: 40px; box-sizing: border-box;">
+          <span id="toggle-password" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; user-select: none; font-size: 16px;">
+            👁️
+          </span>
+        </div>
         <button type="submit">Entrar</button>
+        
+        <!-- Botão de Esqueci a Senha -->
+        <div style="text-align: center; margin-top: 15px;">
+            <a href="#" id="btn-recuperar" style="color: #cc0000; text-decoration: none; font-size: 14px; font-weight: bold;">
+                Esqueceu a senha? Recuperar acesso
+            </a>
+        </div>
+
+        <!-- Área do Código de 6 Dígitos (Inicialmente Escondida) -->
+        <div id="area-recuperacao" style="display: none; margin-top: 20px; padding-top: 15px; border-top: 1px solid #ccc;">
+            <p style="font-size: 13px; color: #333; margin-bottom: 10px;">Enviamos um código de 6 dígitos para o seu e-mail.</p>
+            <label for="codigo-mfa">Código de Validação</label>
+            <input id="codigo-mfa" type="text" maxlength="6" placeholder="Ex: 123456" style="text-align: center; letter-spacing: 5px; font-weight: bold;">
+            <button type="button" id="btn-validar-codigo" style="background-color: #ff9900; margin-top: 10px;">Validar e Trocar Senha</button>
+        </div>
         <div id="login-error" class="login-error"></div>
         <div class="login-hint">
           Exemplos:<br>
@@ -54,7 +74,7 @@
 <div id="app-root" class="app" style="display:none;">
   <header class="app-header">
     <div class="title">
-      <img src="logo_cbmpe.jpg" alt="Corpo de Bombeiros Militar de Pernambuco" class="title-logo" />
+      <img src="logo_cbmpe.png" alt="Corpo de Bombeiros Militar de Pernambuco" class="title-logo" />
       <div>
         <h1>Sistema de Monitoramento de Hidrantes e Sprinklers</h1>
         <div class="status-pills">
@@ -66,10 +86,17 @@
         </div>
       </div>
     </div>
-    <div class="actions">
-      <button class="btn" id="toggle-audio">🔔 Alarme: Desligado</button>
+    <div class="actions" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;">
+      
+      <!-- Identificação do Militar com um fundo translúcido para destacar -->
+      <div id="user-info-display" style="display: none; color: white; font-weight: bold; font-size: 14px; background: rgba(0,0,0,0.2); padding: 6px 12px; border-radius: 6px;"></div>
+      
+      <!-- Textos dos botões encurtados para caberem em telas menores -->
+      <button class="btn" id="toggle-audio">🔔 Alarme</button>
+      <button class="btn" id="btn-gerenciar-usuarios" style="display: none; background-color: #3b82f6; color: white;">👥 Gerenciar</button>
       <button class="btn" id="report-btn">📊 Relatórios</button>
       <button class="btn danger" id="logout-btn">🚪 Sair</button>
+
     </div>
   </header>
 
@@ -98,7 +125,7 @@
       <button class="btn" id="btn-dl-pie">⬇️ Pizza</button>
       <button class="btn" id="btn-dl-charts">⬇️ Gráficos (PNG)</button>
       <button class="btn" id="btn-dl-pdf">⬇️ Relatório (PDF)</button>
-      <button class="btn ghost" id="btn-legend">ℹ️ Legenda</button>
+      <button class="btn" id="btn-legend" style="background-color: #3b82f6; color: white;">ℹ️ Legenda de Falhas</button>
       <button class="btn ghost" id="btn-close-dash">✖</button>
       <button class="btn" id="btn-close-dash-2">Fechar</button>
     </div>
@@ -139,6 +166,97 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="detailsNotify">📨 Notificar (e-mail/SMS/WhatsApp)</button></div>
       <button class="btn danger" id="btn-emergencia">🚨 EMERGÊNCIA</button>
       <button class="btn ghost" id="detailsClose2">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de Gestão de Usuários (Apenas Comando/Supervisor) -->
+<div id="modal-usuarios" class="modal" style="display: none;">
+  <div class="box" style="max-width: 750px; width: 95%;">
+    <div class="head">
+        <strong id="titulo-modal-usuarios">Gestão de Efetivo</strong>
+        <button class="btn ghost" id="close-modal-usuarios">✖</button>
+    </div>
+    <div class="body">
+
+      <!-- VISÃO 1: TABELA DE USUÁRIOS -->
+      <div id="view-tabela-usuarios">
+        <!-- Navegação da Tabela -->
+        <div style="display: flex; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+            <button class="btn" id="btn-novo-usuario" style="background-color: #10b981; color: white;">➕ Cadastrar Novo Militar</button>
+            <button type="button" class="btn" id="btn-fechar-tabela" style="border: 1px solid #ccc; background-color: #f9fafb; color: #333; font-weight: bold;">🚪 Fechar Gestão</button>
+        </div>
+        
+        <div style="overflow-x: auto; max-height: 400px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 2px solid #ccc; background-color: #f9fafb;">
+                <th style="padding: 10px; position: sticky; top: 0; background-color: #f9fafb;">Posto/Grad</th>
+                <th style="padding: 10px; position: sticky; top: 0; background-color: #f9fafb;">Nome de Guerra</th>
+                <th style="padding: 10px; position: sticky; top: 0; background-color: #f9fafb;">Matrícula</th>
+                <th style="padding: 10px; position: sticky; top: 0; background-color: #f9fafb;">Cargo</th>
+                <th style="padding: 10px; text-align: center; position: sticky; top: 0; background-color: #f9fafb;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-usuarios">
+              <!-- Linhas geradas automaticamente via JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VISÃO 2: FORMULÁRIO DE CADASTRO/EDIÇÃO -->
+      <div id="view-form-usuario" style="display: none;">
+        <form id="form-novo-usuario">
+          <input type="hidden" id="edit-user-id"> <!-- Guarda o ID oculto quando for editar -->
+          
+          <label>Login / Nome de Guerra</label>
+          <input type="text" id="novo-user-login" placeholder="Ex: sgt_silva" required style="width: 100%; margin-bottom: 10px; padding: 6px;">
+          
+          <label>Senha</label>
+          <input type="password" id="novo-user-senha" placeholder="Digite a senha (em edição, deixe em branco para manter a atual)" style="width: 100%; margin-bottom: 10px; padding: 6px;">
+          
+          <label>E-mail (Para recuperação)</label>
+          <input type="email" id="novo-user-email" placeholder="email@cbm.pe.gov.br" required style="width: 100%; margin-bottom: 10px; padding: 6px;">
+          
+          <label>Telefone / WhatsApp</label>
+          <input type="text" id="novo-user-tel" placeholder="81999999999" required style="width: 100%; margin-bottom: 10px; padding: 6px;">
+          
+          <label>Posto / Graduação</label>
+          <select id="novo-user-posto" style="width: 100%; margin-bottom: 10px; padding: 8px;">
+            <option value="">Selecione...</option>
+            <option value="Cel">Coronel (Cel)</option>
+            <option value="Ten Cel">Ten Cel</option>
+            <option value="Maj">Major (Maj)</option>
+            <option value="Cap">Capitão (Cap)</option>
+            <option value="1º Ten">1º Ten</option>
+            <option value="2º Ten">2º Ten</option>
+            <option value="Sub Ten">Subtenente</option>
+            <option value="1º Sgt">1º Sgt</option>
+            <option value="2º Sgt">2º Sgt</option>
+            <option value="3º Sgt">3º Sgt</option>
+            <option value="Cb">Cabo (Cb)</option>
+            <option value="Sd">Soldado (Sd)</option>
+          </select>
+
+          <label>Matrícula</label>
+          <input type="text" id="novo-user-mat" placeholder="Ex: 123456-7" style="width: 100%; margin-bottom: 10px; padding: 6px;">
+          
+          <label>Nível de Acesso (Cargo)</label>
+          <select id="novo-user-cargo" required style="width: 100%; margin-bottom: 20px; padding: 8px;">
+            <option value="Operador">Operador (Apenas visualização)</option>
+            <option value="Supervisor">Supervisor (Gestão de alertas)</option>
+            <option value="Comando">Comando (Acesso total)</option>
+          </select>
+          
+          <!-- Botões de Ação do Formulário lado a lado -->
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+              <button type="button" class="btn" id="btn-voltar-tabela" style="width: 50%; border: 1px solid #ccc; background-color: #f9fafb; color: #333; font-weight: bold;">⬅ Voltar à Tabela</button>
+              <button type="submit" class="btn" style="width: 50%; background-color: #10b981; color: white; font-weight: bold;">Salvar Usuário</button>
+          </div>
+        </form>
+      </div>
+
     </div>
   </div>
 </div>

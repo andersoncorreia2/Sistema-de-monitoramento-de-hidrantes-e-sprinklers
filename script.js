@@ -7,16 +7,28 @@ const appState = { started: false };
 const state = { audioOn: false, markers: new Map(), alerts: [] };
 
 /* ==========================
-   CARREGAMENTO DE DADOS (JSON)
+   CARREGAMENTO DE DADOS (POSTGRESQL)
    ========================== */
 async function loadData() {
     try {
-        const response = await fetch('data.json');
-        if (!response.ok) throw new Error("Não foi possível carregar data.json");
-        const data = await response.json();
+        const token = localStorage.getItem('authToken');
         
-        USERS = data.users;
-        equipamentos = data.equipamentos;
+        // Trava: Se não tem token, nem tenta buscar no banco
+        if (!token) return;
+
+        // Bate na rota exata do seu Controller, enviando o distintivo de segurança!
+        const response = await fetch('http://localhost:3000/equipamentos/listar', {
+            method: 'GET',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            }
+        });
+        
+        if (!response.ok) throw new Error("Acesso negado ou falha no banco de dados.");
+        
+        // O seu controller retorna a lista (array) direto, então jogamos ela na variável
+        equipamentos = await response.json(); 
 
         // Gera timestamps dinâmicos para simular "dados recentes"
         equipamentos.forEach(e => {
@@ -24,10 +36,10 @@ async function loadData() {
             e.ultima = new Date(Date.now() - m * 60000).toISOString().slice(0, 16).replace('T', ' ');
         });
 
-        console.log("Dados carregados com sucesso!");
+        console.log("🌍 Equipamentos carregados do PostgreSQL com sucesso!");
     } catch (error) {
         console.error("Erro no carregamento:", error);
-        toast("Erro ao carregar dados. Verifique o console.");
+        toast("Erro ao carregar dados do mapa. O servidor está rodando?");
     }
 }
 
@@ -40,59 +52,251 @@ function showLogin() {
     document.getElementById('login-screen').style.display = 'flex';
     document.getElementById('app-root').style.display = 'none';
 }
+
 function showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app-root').style.display = 'grid';
+    
+    // ==========================================
+    // CONTROLE DE ACESSO (RBAC) - MOSTRAR BOTÕES
+    // ==========================================
+    const cargo = localStorage.getItem('userRole');
+    const btnGerenciar = document.getElementById('btn-gerenciar-usuarios');
+    
+    if (btnGerenciar) {
+        if (cargo === 'Comando' || cargo === 'Supervisor') {
+            btnGerenciar.style.display = 'inline-block';
+        } else {
+            btnGerenciar.style.display = 'none';
+        }
+    }
+
+    // ==========================================
+    // EXIBIR IDENTIFICAÇÃO DO MILITAR LOGADO
+    // ==========================================
+    const token = localStorage.getItem('authToken');
+    const infoDisplay = document.getElementById('user-info-display');
+    if (token && infoDisplay) {
+        try {
+            const payload = JSON.parse(decodeURIComponent(escape(atob(token.split('.')[1]))));
+            const posto = payload.posto ? `${payload.posto} ` : '';
+            const nomeGuerra = payload.login || '';
+            const matricula = payload.matricula ? ` (Mat: ${payload.matricula})` : '';
+            
+            infoDisplay.textContent = `👮 ${posto}${nomeGuerra}${matricula}`;
+            infoDisplay.style.display = 'inline-block';
+        } catch (e) {
+            infoDisplay.style.display = 'none';
+        }
+    }
+
+    // Correção do redimensionamento do mapa
+    setTimeout(() => {
+        if (typeof map !== 'undefined' && map !== null) {
+            map.invalidateSize(true);
+        }
+    }, 250); 
 }
 
-function startAppOnce() {
+async function startAppOnce() {
     if (appState.started) return;
     appState.started = true;
-    initMap();
-    startSimulacao();
+    
+    // 1. Espera os dados chegarem do PostgreSQL ANTES de continuar
+    await loadData(); 
+    
+    // 2. Só inicializa o mapa se ele ainda não existir
+    if (!map) {
+        initMap();
+        startSimulacao();
+    } else {
+        // Se a pessoa só fez logout e login de novo, apenas atualizamos os pinos
+        equipamentos.forEach(addOrUpdateMarker);
+        atualizarContadores();
+    }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Carrega o JSON primeiro
-    await loadData();
+    // ==========================================
+    // MOSTRAR / OCULTAR SENHA (OLHINHO)
+    // ==========================================
+    document.getElementById('toggle-password').addEventListener('click', function() {
+        const passInput = document.getElementById('login-pass');
+        if (passInput.type === 'password') {
+            passInput.type = 'text';
+            this.textContent = '🙈'; // Muda para o macaquinho/olho fechado
+        } else {
+            passInput.type = 'password';
+            this.textContent = '👁️'; // Volta para o olho aberto
+        }
+    });
+
+    // 🚨 A LINHA 'await loadData();' FOI REMOVIDA DAQUI! 🚨
 
     // 2. Verifica Login
     const existingToken = localStorage.getItem('authToken');
     if (existingToken) {
         showApp();
-        startAppOnce();
+        startAppOnce(); // O loadData agora é chamado em segurança aqui dentro!
     } else {
         showLogin();
     }
 
-    // 3. Setup do Form
+    // 3. Setup do Form (Validando direto no PostgreSQL via Node.js)
     const form = document.getElementById('login-form');
-    form.addEventListener('submit', (e) => {
+    
+    // Removemos ouvintes antigos para evitar duplicação (boa prática)
+    form.replaceWith(form.cloneNode(true));
+    const newForm = document.getElementById('login-form');
+
+    newForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const user = document.getElementById('login-user').value.trim();
         const pass = document.getElementById('login-pass').value;
         const err = document.getElementById('login-error');
-        
-        const u = USERS[user];
-        if (!u || u.password !== pass) {
-            err.textContent = 'Usuário ou senha inválidos.';
+
+        err.style.display = 'none';
+
+        try {
+            // O "envelope" agora vai cheio! 
+            const respostaLogin = await fetch('http://localhost:3000/login', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ usuario: user, senha: pass }) // Aqui enviamos os dados
+            });
+            
+            const dadosLogin = await respostaLogin.json();
+
+            if (respostaLogin.ok) {
+                localStorage.setItem('authToken', dadosLogin.token);
+                
+                // Puxa a permissão (cargo) direto da chave criptografada
+                const payload = JSON.parse(atob(dadosLogin.token.split('.')[1]));
+                localStorage.setItem('userRole', payload.permissao);
+                
+                showApp();
+                startAppOnce();
+            } else {
+                err.textContent = dadosLogin.erro || 'Usuário ou senha inválidos.';
+                err.style.display = 'block';
+            }
+        } catch (erro) {
+            err.textContent = 'Erro ao conectar com o servidor. O backend está rodando?';
+            err.style.display = 'block';
+        }
+    });
+
+    // ==========================================
+    // BOTÃO SAIR (BLINDADO E DEFINITIVO)
+    // ==========================================
+    const btnLogout = document.getElementById('logout-btn');
+    if (btnLogout) {
+        btnLogout.addEventListener('click', (e) => {
+            e.preventDefault();
+            localStorage.clear(); // Limpa o Token, o Cargo e qualquer lixo de memória
+            
+            // SUBSTITUA O RELOAD POR ESTA LINHA ABAIXO:
+            window.location.href = window.location.pathname; // Limpa a URL e volta para a raiz
+        });
+    }
+    // ==========================================
+    // VALIDAÇÃO DO CÓDIGO E TROCA DE SENHA
+    // ==========================================
+    document.getElementById('btn-validar-codigo').addEventListener('click', async () => {
+        const user = document.getElementById('login-user').value.trim();
+        const codigo = document.getElementById('codigo-mfa').value.trim();
+        const err = document.getElementById('login-error');
+
+        if (!codigo || codigo.length !== 6) {
+            err.textContent = 'Por favor, digite o código de 6 dígitos corretamente.';
             err.style.display = 'block';
             return;
         }
-        const token = generateToken();
-        localStorage.setItem('authToken', token);
-        localStorage.setItem('userRole', u.role);
-        err.style.display = 'none';
-        showApp();
-        startAppOnce();
-    });
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userRole');
-        appState.started = false;
-        showLogin();
+        // 1. Pede a nova senha de forma simples usando um prompt nativo do navegador
+        const novaSenha = prompt('Código inserido!\nDigite abaixo a sua NOVA SENHA para o sistema:');
+        
+        if (!novaSenha) {
+            toast('Troca de senha cancelada.');
+            return;
+        }
+
+        toast('Validando código e trocando senha...');
+        err.style.display = 'none';
+
+        try {
+            // 2. Envia os dados para a nossa nova rota no Node.js
+            const resposta = await fetch('http://localhost:3000/trocar-senha-codigo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ usuario: user, codigo: codigo, novaSenha: novaSenha })
+            });
+
+            const dados = await resposta.json();
+
+            if (resposta.ok) {
+                toast('✅ ' + dados.mensagem);
+                
+                // 3. Esconde a área de recuperação, volta a tela ao normal e preenche a nova senha
+                document.getElementById('area-recuperacao').style.display = 'none';
+                document.getElementById('btn-recuperar').style.display = 'block';
+                document.getElementById('codigo-mfa').value = '';
+                document.getElementById('login-pass').value = novaSenha; 
+                
+            } else {
+                err.textContent = dados.erro || 'Erro ao trocar a senha.';
+                err.style.display = 'block';
+            }
+        } catch (erro) {
+            err.textContent = 'Erro de conexão com o servidor. O backend está rodando?';
+            err.style.display = 'block';
+        }
     });
+});
+
+// ==========================================
+// LÓGICA DE RECUPERAÇÃO DE SENHA (MFA)
+// ==========================================
+document.getElementById('btn-recuperar').addEventListener('click', async (e) => {
+    e.preventDefault(); // Evita que a página recarregue ao clicar no link
+        
+    const user = document.getElementById('login-user').value.trim();
+    const err = document.getElementById('login-error');
+
+    // 1. Verifica se o usuário digitou o login antes de pedir o código
+    if (!user) {
+        err.textContent = 'Por favor, digite seu Usuário acima antes de recuperar a senha.';
+        err.style.display = 'block';
+        return;
+    }
+
+    err.style.display = 'none';
+    toast('Gerando código e enviando para o seu e-mail...');
+
+    try {
+        // 2. Aciona a nossa nova rota no Node.js
+        const resposta = await fetch('http://localhost:3000/recuperar-senha', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usuario: user })
+        });
+
+        const dados = await resposta.json();
+
+        if (resposta.ok) {
+            toast('📧 Código enviado! Verifique seu e-mail.');
+                
+            // 3. Mostra a caixinha escondida para digitar os 6 dígitos
+            document.getElementById('area-recuperacao').style.display = 'block';
+            document.getElementById('btn-recuperar').style.display = 'none'; // Esconde o link para evitar cliques duplos
+        } else {
+            err.textContent = dados.erro || 'Erro ao tentar enviar o código.';
+            err.style.display = 'block';
+        }
+    } catch (erro) {
+        err.textContent = 'Falha de comunicação com o servidor. O backend está rodando?';
+        err.style.display = 'block';
+    }
 });
 
 /* ===================== Helpers ===================== */
@@ -382,7 +586,7 @@ document.getElementById('history-xlsx').addEventListener('click', () => { const 
 
 const forced = new Map();
 function simulateOfflineTick() {
-    if (Math.random() < 0.25) { const on = equipamentos.filter(e => isOnline(e) && !forced.has(e.id)); if (on.length) { const e = on[Math.floor(Math.random() * on.length)]; const dur = 60 + Math.floor(Math.random() * 120); forced.set(e.id = Math.floor(Date.now() / 1000) + dur); } }
+    if (Math.random() < 0.25) { const on = equipamentos.filter(e => isOnline(e) && !forced.has(e.id)); if (on.length) { const e = on[Math.floor(Math.random() * on.length)]; const dur = 60 + Math.floor(Math.random() * 120); forced.set(e.id, Math.floor(Date.now() / 1000) + dur); } }
     const now = Math.floor(Date.now() / 1000);
     [...forced.entries()].forEach(([id, until]) => { if (now >= until) { forced.delete(id); const e = equipamentos.find(x => x.id === id); if (e) { e.ultima = new Date().toISOString().slice(0, 16).replace('T', ' '); pushAlert({ id: e.id, tipo: 'Restabelecido', msg: 'Comunicação normalizada' }); } } });
 }
@@ -395,7 +599,59 @@ function simulateTelemetryTick() {
 function aplicarDiagnostico(eq) { const { status, findings, summary } = evaluateEquipment(eq); const antigo = eq.status; eq.status = status; addOrUpdateMarker(eq); atualizarContadores(); refreshDashCharts(); if (status !== antigo) { pushAlert({ id: eq.id, tipo: status === 'falha' ? 'Falha detectada' : (status === 'atencao' ? 'Atenção' : 'Restabelecido'), msg: summary }); if (status === 'falha') beep(); } }
 function reavaliarTudo() { equipamentos.forEach(aplicarDiagnostico); }
 const T_STATUS = 5000, T_OFFLINE = 10000;
-function startSimulacao() { atualizarContadores(); reavaliarTudo(); setInterval(reavaliarTudo, T_STATUS); setInterval(simulateTelemetryTick, T_STATUS); setInterval(simulateOfflineTick, T_OFFLINE); }
+function startSimulacao() { 
+    // 1. Popula os alertas iniciais caso já existam problemas no banco ao abrir a tela
+    equipamentos.forEach(eq => {
+        const r = evaluateEquipment(eq);
+        eq.status = r.status; // Salva o status inicial
+        
+        // Se já estiver quebrado quando o Comando logar, gera o alerta no histórico
+        if (r.status !== 'operacional') {
+            pushAlert({ 
+                id: eq.id, 
+                tipo: r.status === 'falha' ? 'Falha detectada' : 'Atenção', 
+                msg: r.summary 
+            });
+        }
+    });
+    
+    atualizarContadores(); 
+    
+    // 2. O Radar IoT (Bate no banco de 5 em 5 segundos)
+    setInterval(async () => {
+        // Tira uma "foto" dos status antes de atualizar com o banco
+        const statusAntigo = {};
+        equipamentos.forEach(e => statusAntigo[e.id] = e.status);
+
+        // Traz as pressões/vazões novas do PostgreSQL
+        await loadData();
+
+        // Avalia se algo mudou
+        equipamentos.forEach(eq => {
+            const r = evaluateEquipment(eq);
+            eq.status = r.status; // Atualiza o objeto com o novo status
+            
+            const antigo = statusAntigo[eq.id];
+            
+            // Se houve uma mudança real (ex: estava Operacional e virou Falha), dispara alerta novo!
+            if (antigo && r.status !== antigo) {
+                pushAlert({ 
+                    id: eq.id, 
+                    tipo: r.status === 'falha' ? 'Falha detectada' : (r.status === 'atencao' ? 'Atenção' : 'Restabelecido'), 
+                    msg: r.summary 
+                });
+                
+                // Toca a sirene se for falha nova
+                if (r.status === 'falha') beep();
+            }
+
+            addOrUpdateMarker(eq); // Atualiza os pinos no mapa
+        });
+
+        atualizarContadores();
+        refreshDashCharts();
+    }, 5000); 
+}
 
 document.getElementById('toggle-audio').addEventListener('click', e => { state.audioOn = !state.audioOn; e.currentTarget.textContent = `🔔 Alarme: ${state.audioOn ? 'Ligado' : 'Desligado'}`; });
 document.getElementById('download-alerts').addEventListener('click', () => { const headers = ['Data/Hora', 'Equipamento', 'Localização', 'Tipo', 'Mensagem (com códigos)']; const lines = state.alerts.map(a => [`"${a.hora}"`, a.equip, `"${a.loc}"`, a.tipo, `"${a.msg}"`].join(',')); const csv = [headers.join(','), ...lines].join('\n'); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `alertas_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url); });
@@ -414,6 +670,233 @@ function showDetails(id) {
     document.getElementById('detailsBody').innerHTML = body; document.getElementById('detailsModal').style.display = 'flex'; document.getElementById('detailsNotify').onclick = () => notificarResponsavel(id); document.getElementById('btn-emergencia').onclick = () => acionarEmergencia(id);
 }
 document.getElementById('detailsClose').addEventListener('click', () => { document.getElementById('detailsModal').style.display = 'none'; }); document.getElementById('detailsClose2').addEventListener('click', () => { document.getElementById('detailsModal').style.display = 'none'; }); document.getElementById('detailsModal').addEventListener('click', e => { if (e.target.id === 'detailsModal') e.currentTarget.style.display = 'none'; });
-async function notificarResponsavel(id) { const eq = equipamentos.find(e => e.id === id); if (!eq) { toast('⚠️ Equipamento não encontrado.'); return; } toast('🚀 (Simulação) Notificação enviada ao responsável.'); pushAlert({ id: eq.id, tipo: 'Notificação', msg: 'Responsável notificado (simulado)' }); }
+async function notificarResponsavel(id) { 
+    const eq = equipamentos.find(e => e.id === id); 
+    if (!eq) { 
+        toast('⚠️ Equipamento não encontrado.'); 
+        return; 
+    } 
+
+    const r = evaluateEquipment(eq);
+    const falhasTexto = r.findings.map(f => f.title).join(', ');
+
+    toast('Enviando notificações ao responsável...');
+
+    // Pega o token de segurança gerado quando o usuário fez o login
+    const token = localStorage.getItem('authToken');
+
+    try {
+        const resposta = await fetch('http://localhost:3000/notificar/enviar-alerta', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // Mostra o "distintivo" JWT para o servidor
+            },
+            body: JSON.stringify({
+                id_equipamento: eq.id,
+                tipo: eq.tipo,
+                local: eq.locName,
+                falhas: falhasTexto,
+                responsavel: eq.responsavel 
+            })
+        });
+
+        if (resposta.ok) {
+            toast('🚀 Notificação real enviada via E-mail!'); 
+            pushAlert({ id: eq.id, tipo: 'Notificação', msg: 'Responsável notificado formalmente.' }); 
+        } else {
+            // Se der erro (ex: 403), lemos a mensagem de erro do servidor
+            const erroData = await resposta.json();
+            toast(`⚠️ Erro: ${erroData.erro || 'Não foi possível notificar.'}`);
+        }
+    } catch (erro) {
+        toast('⚠️ Falha de conexão com o servidor de mensagens.');
+    }
+}
 function acionarEmergencia(id) { const eq = equipamentos.find(e => e.id === id); if (!eq) return; for (let i = 0; i < 2; i++) setTimeout(() => beep(), i * 250); pushAlert({ id: eq.id, tipo: 'EMERGÊNCIA', msg: 'Acionamento manual registrado' }); toast('🚨 Emergência registrada!'); }
 window.addEventListener('online', () => { if (connCtl) connCtl.getContainer().querySelector('.txt').textContent = 'Conexão: Estável'; }); window.addEventListener('offline', () => { if (connCtl) connCtl.getContainer().querySelector('.txt').textContent = 'Conexão: Indisponível'; });
+
+// ==========================================
+// GESTÃO DE USUÁRIOS (TELA, LISTAGEM, CRUD)
+// ==========================================
+const modalUsuarios = document.getElementById('modal-usuarios');
+const btnGerenciarMenu = document.getElementById('btn-gerenciar-usuarios');
+const btnFecharModalUsuarios = document.getElementById('close-modal-usuarios'); // O "X" no topo
+const btnFecharTabela = document.getElementById('btn-fechar-tabela'); // O novo botão na tabela
+const viewTabela = document.getElementById('view-tabela-usuarios');
+const viewForm = document.getElementById('view-form-usuario');
+const btnNovoUsuario = document.getElementById('btn-novo-usuario');
+const btnVoltarTabela = document.getElementById('btn-voltar-tabela');
+const formNovoUsuario = document.getElementById('form-novo-usuario');
+
+// ABRE A MODAL E CARREGA A TABELA
+if (btnGerenciarMenu) {
+    btnGerenciarMenu.addEventListener('click', () => {
+        modalUsuarios.style.display = 'flex';
+        mostrarTabelaUsuarios();
+    });
+}
+
+// FECHA A MODAL (Tanto no "X" quanto no botão "Fechar Gestão")
+const fecharModalGestao = () => {
+    modalUsuarios.style.display = 'none';
+};
+if (btnFecharModalUsuarios) btnFecharModalUsuarios.addEventListener('click', fecharModalGestao);
+if (btnFecharTabela) btnFecharTabela.addEventListener('click', fecharModalGestao);
+
+window.addEventListener('click', (e) => {
+    if (e.target === modalUsuarios) fecharModalGestao();
+});
+
+// ALTERNAR VISÕES (Tabela <-> Formulário)
+if (btnNovoUsuario) {
+    btnNovoUsuario.addEventListener('click', () => {
+        document.getElementById('edit-user-id').value = ''; // Limpa o ID Oculto
+        formNovoUsuario.reset(); // Limpa os campos
+        document.getElementById('novo-user-senha').required = true; // Senha é obrigatória no Cadastro
+        viewTabela.style.display = 'none';
+        viewForm.style.display = 'block';
+        document.getElementById('titulo-modal-usuarios').textContent = "Cadastrar Novo Militar";
+    });
+}
+
+if (btnVoltarTabela) {
+    btnVoltarTabela.addEventListener('click', mostrarTabelaUsuarios);
+}
+
+function mostrarTabelaUsuarios() {
+    viewForm.style.display = 'none';
+    viewTabela.style.display = 'block';
+    document.getElementById('titulo-modal-usuarios').textContent = "Gestão de Efetivo";
+    carregarTabelaUsuarios();
+}
+
+// 1. LER: Busca a lista no servidor PostgreSQL
+async function carregarTabelaUsuarios() {
+    const token = localStorage.getItem('authToken');
+    const tbody = document.getElementById('tbody-usuarios');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 15px;">⏳ Carregando efetivo...</td></tr>';
+
+    try {
+        const resposta = await fetch('http://localhost:3000/listar-usuarios', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!resposta.ok) throw new Error("Erro ao buscar usuários");
+        
+        const usuarios = await resposta.json();
+        tbody.innerHTML = '';
+
+        usuarios.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid #eee';
+            
+            // Note que estamos passando o objeto 'u' inteiro para a função de Editar
+            tr.innerHTML = `
+                <td style="padding: 10px;">${u.posto_grad || '-'}</td>
+                <td style="padding: 10px; font-weight: bold; color: #333;">${u.login}</td>
+                <td style="padding: 10px;">${u.matricula || '-'}</td>
+                <td style="padding: 10px;"><span class="pill" style="background:#e5e7eb; color:#374151;">${u.cargo}</span></td>
+                <td style="padding: 10px; text-align: center;">
+                    <button class="btn small" style="background-color: #3b82f6; color: white;" onclick='editarUsuario(${JSON.stringify(u)})'>✏️ Editar</button>
+                    <button class="btn small danger" onclick="excluirUsuario('${u.id}', '${u.login}')">🗑️ Excluir</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (erro) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red; padding: 15px;">Falha ao carregar dados de rede.</td></tr>';
+        console.error(erro);
+    }
+}
+
+// 2. ATUALIZAR: Prepara o formulário com os dados existentes
+window.editarUsuario = function(u) {
+    document.getElementById('edit-user-id').value = u.id; // Salva o ID oculto
+    document.getElementById('novo-user-login').value = u.login;
+    document.getElementById('novo-user-email').value = u.email || '';
+    document.getElementById('novo-user-tel').value = u.telefone || '';
+    document.getElementById('novo-user-posto').value = u.posto_grad || '';
+    document.getElementById('novo-user-mat').value = u.matricula || '';
+    document.getElementById('novo-user-cargo').value = u.cargo;
+    
+    // A Senha não é obrigatória na edição (Se o comando deixar em branco, o backend mantém a antiga)
+    const campoSenha = document.getElementById('novo-user-senha');
+    campoSenha.value = '';
+    campoSenha.required = false; 
+    
+    viewTabela.style.display = 'none';
+    viewForm.style.display = 'block';
+    document.getElementById('titulo-modal-usuarios').textContent = "Editar Dados do Militar";
+};
+
+// 3. DELETAR: Remove o usuário do PostgreSQL
+window.excluirUsuario = async function(id, login) {
+    if (!confirm(`TEM CERTEZA que deseja EXCLUIR permanentemente o acesso de "${login}"?`)) return;
+
+    const token = localStorage.getItem('authToken');
+    toast('Excluindo usuário...');
+
+    try {
+        const resposta = await fetch(`http://localhost:3000/excluir-usuario/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const dados = await resposta.json();
+        
+        if (resposta.ok) {
+            toast('✅ ' + dados.mensagem);
+            carregarTabelaUsuarios(); // Atualiza a tabela na mesma hora
+        } else {
+            toast('⚠️ Erro: ' + dados.erro);
+        }
+    } catch (erro) {
+        toast('⚠️ Erro de comunicação com o servidor.');
+    }
+};
+
+// 4. SALVAR: Avalia se é um Cadastro Novo (POST) ou uma Edição (PUT)
+if (formNovoUsuario) {
+    formNovoUsuario.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const id = document.getElementById('edit-user-id').value;
+        const login = document.getElementById('novo-user-login').value.trim();
+        const senha = document.getElementById('novo-user-senha').value.trim();
+        const email = document.getElementById('novo-user-email').value.trim();
+        const telefone = document.getElementById('novo-user-tel').value.trim();
+        const cargo = document.getElementById('novo-user-cargo').value;
+        const posto_grad = document.getElementById('novo-user-posto').value;
+        const matricula = document.getElementById('novo-user-mat').value.trim();
+
+        const token = localStorage.getItem('authToken');
+        
+        // Se houver um ID Oculto, é Edição (PUT). Se não, é Cadastro Novo (POST).
+        const url = id ? `http://localhost:3000/editar-usuario/${id}` : 'http://localhost:3000/cadastrar-usuario';
+        const method = id ? 'PUT' : 'POST';
+
+        toast(id ? 'Atualizando dados no banco...' : 'Salvando novo usuário...');
+
+        try {
+            const resposta = await fetch(url, {
+                method: method,
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ login, senha, email, telefone, cargo, posto_grad, matricula })
+            });
+
+            const dados = await resposta.json();
+
+            if (resposta.ok) {
+                toast('✅ ' + dados.mensagem);
+                mostrarTabelaUsuarios(); // Volta para a tabela atualizada!
+            } else {
+                toast('⚠️ Erro: ' + (dados.erro || 'Falha na operação.'));
+            }
+        } catch (erro) {
+            toast('⚠️ Erro de conexão com o servidor Node.js.');
+        }
+    });
+}
