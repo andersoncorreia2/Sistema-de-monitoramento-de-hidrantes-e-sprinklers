@@ -1,7 +1,9 @@
 require('dotenv').config(); // Carrega as chaves secretas do arquivo .env
 const db = require('./config/db');
+const Usuario = require('./models/Usuario');
 const express = require('express');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
 
 // Importando os seus Controllers
 const telemetriaController = require('./controllers/telemetriaController');
@@ -14,6 +16,8 @@ const app = express();
 app.use(cors()); // Essencial: Permite que o painel (porta 5500) acesse esta API (porta 3000)
 app.use(express.json()); // Permite que a API entenda requisições no formato JSON
 app.use(express.urlencoded({ extended: true }));
+// Servindo a interface gráfica estática da pasta views
+app.use(express.static('views'));
 const jwt = require('jsonwebtoken');
 const CHAVE_SECRETA = 'cbmpe_chave_super_secreta_preve_2026';
 
@@ -40,44 +44,31 @@ function protegerRota(req, res, next) {
     }
 }
 
-// Rota de Login Autenticada via PostgreSQL
+// Rota de Login Autenticada via PostgreSQL (Usando Model)
 app.post('/login', async (req, res) => {
-    // 1. Proteção extra contra dados vazios ou formatos não reconhecidos
     const body = req.body || {};
-    console.log('🔍 Dados recebidos do painel:', body);
-
     const usuarioDigitado = body.usuario || body.username || body.login || body.user;
     let senhaDigitada = body.senha || body.password || body.pass;
 
-    // 2. Se as variáveis não vierem, bloqueamos sem travar o servidor
     if (!usuarioDigitado || !senhaDigitada) {
-        console.log('❌ Falha: O Frontend não enviou as chaves corretas. Variáveis que chegaram:', Object.keys(body));
         return res.status(400).json({ erro: 'Usuário e senha são obrigatórios.' });
     }
 
-    senhaDigitada = String(senhaDigitada);
-
     try {
-        const resultado = await db.query(
-            'SELECT * FROM usuarios WHERE login = $1 AND senha_segura = $2',
-            [usuarioDigitado, senhaDigitada]
-        );
+        // Chamada limpa para o Model
+        const usuarioLogado = await Usuario.validarLogin(usuarioDigitado, String(senhaDigitada));
 
-        if (resultado.rows.length === 0) {
-            console.log(`❌ Login falhou para: ${usuarioDigitado}`);
+        if (!usuarioLogado) {
             return res.status(401).json({ erro: 'Acesso negado: Credenciais inválidas.' });
         }
-
-        const usuarioLogado = resultado.rows[0];
-        console.log(`✅ Login Aprovado para: ${usuarioLogado.login}`);
 
         const tokenOficial = jwt.sign(
             { 
                 corporacao: 'CBMPE', 
                 login: usuarioLogado.login,
                 permissao: usuarioLogado.cargo,
-                posto: usuarioLogado.posto_grad,   // Puxa o posto
-                matricula: usuarioLogado.matricula // Puxa a matrícula
+                posto: usuarioLogado.posto_grad,
+                matricula: usuarioLogado.matricula
             }, 
             CHAVE_SECRETA, 
             { expiresIn: '8h' }
@@ -86,38 +77,27 @@ app.post('/login', async (req, res) => {
         return res.status(200).json({ token: tokenOficial });
 
     } catch (erro) {
-        console.error('⚠️ Erro interno na consulta:', erro);
+        console.error('⚠️ Erro interno no login:', erro);
         return res.status(500).json({ erro: 'Erro interno ao validar login.' });
     }
 });
 
-// Rota para Gerar e Enviar Código de Recuperação (6 dígitos)
-const nodemailer = require('nodemailer');
-
+// Rota para Gerar e Enviar Código de Recuperação (Usando Model)
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
 
     try {
-        // 1. Busca o e-mail do usuário no banco
-        const resultado = await db.query('SELECT email FROM usuarios WHERE login = $1', [usuario]);
+        const emailDestino = await Usuario.buscarEmailPorLogin(usuario);
         
-        if (resultado.rows.length === 0) {
+        if (!emailDestino) {
             return res.status(404).json({ erro: 'Usuário não encontrado.' });
         }
 
-        const emailDestino = resultado.rows[0].email;
-
-        // 2. Gera o código de 6 dígitos e o tempo de expiração (15 minutos)
         const codigo = Math.floor(100000 + Math.random() * 900000).toString();
         const expiracao = new Date(Date.now() + 15 * 60000); 
 
-        // 3. Salva o código no banco de dados
-        await db.query(
-            'UPDATE usuarios SET codigo_recuperacao = $1, expiracao_codigo = $2 WHERE login = $3',
-            [codigo, expiracao, usuario]
-        );
+        await Usuario.salvarCodigoMFA(usuario, codigo, expiracao);
 
-        // 4. Dispara o e-mail (usando as mesmas credenciais que você já tem no .env)
         const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: { user: process.env.EMAIL_REMETENTE, pass: process.env.EMAIL_SENHA },
@@ -139,7 +119,7 @@ app.post('/recuperar-senha', async (req, res) => {
     }
 });
 
-// Rota para Validar o Código de 6 Dígitos e Trocar a Senha
+// Rota para Validar o Código MFA e Trocar a Senha (Usando Model)
 app.post('/trocar-senha-codigo', async (req, res) => {
     const { usuario, codigo, novaSenha } = req.body;
 
@@ -148,21 +128,13 @@ app.post('/trocar-senha-codigo', async (req, res) => {
     }
 
     try {
-        // 1. Verifica se o código bate com o usuário e se a expiração ainda é maior que o momento atual (NOW)
-        const resultado = await db.query(
-            'SELECT * FROM usuarios WHERE login = $1 AND codigo_recuperacao = $2 AND expiracao_codigo > NOW()',
-            [usuario, codigo]
-        );
+        const codigoValido = await Usuario.validarCodigoMFA(usuario, codigo);
 
-        if (resultado.rows.length === 0) {
+        if (!codigoValido) {
             return res.status(400).json({ erro: 'Código inválido ou expirado. Solicite um novo.' });
         }
 
-        // 2. Se o código for válido, atualiza a senha e "limpa" a gaveta do código por segurança
-        await db.query(
-            'UPDATE usuarios SET senha_segura = $1, codigo_recuperacao = NULL, expiracao_codigo = NULL WHERE login = $2',
-            [String(novaSenha), usuario]
-        );
+        await Usuario.atualizarSenhaELimparMFA(usuario, novaSenha);
 
         return res.status(200).json({ mensagem: 'Senha alterada com sucesso! Você já pode entrar.' });
 
@@ -183,7 +155,7 @@ app.use('/notificar', protegerRota, notificacaoController);
 // ROTAS DE GESTÃO DE USUÁRIOS (CRUD Completo)
 // ==========================================
 
-// 1. CADASTRAR NOVO USUÁRIO
+// 1. CADASTRAR NOVO USUÁRIO (Usando o Model)
 app.post('/cadastrar-usuario', async (req, res) => {
     const { login, senha, email, telefone, cargo, posto_grad, matricula } = req.body;
 
@@ -192,29 +164,27 @@ app.post('/cadastrar-usuario', async (req, res) => {
     }
 
     try {
-        const userExiste = await db.query('SELECT * FROM usuarios WHERE login = $1', [login]);
-        if (userExiste.rows.length > 0) {
+        // Usa o Model para checar se já existe
+        const userExiste = await Usuario.buscarPorLogin(login);
+        if (userExiste) {
             return res.status(400).json({ erro: 'Este nome de Guerra/Login já está em uso.' });
         }
 
-        await db.query(
-            'INSERT INTO usuarios (login, senha_segura, email, telefone, cargo, posto_grad, matricula) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-            [login, String(senha), email, telefone, cargo, posto_grad, matricula]
-        );
-
+        // Usa o Model para salvar
+        await Usuario.cadastrar(req.body);
         return res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso!' });
     } catch (erro) {
         console.error('Erro ao cadastrar usuário:', erro);
-        return res.status(500).json({ erro: 'Erro interno ao salvar o usuário no banco de dados.' });
+        return res.status(500).json({ erro: 'Erro interno ao salvar o usuário.' });
     }
 });
 
-// 2. LISTAR TODOS OS USUÁRIOS (Para preencher a tabela no Frontend)
+// 2. LISTAR TODOS OS USUÁRIOS (Usando o Model!)
 app.get('/listar-usuarios', async (req, res) => {
     try {
-        // Trazemos tudo, EXCETO a senha e os códigos, por questões óbvias de segurança
-        const resultado = await db.query('SELECT id, login, email, telefone, cargo, posto_grad, matricula FROM usuarios ORDER BY id ASC');
-        return res.status(200).json(resultado.rows);
+        // Olha como ficou limpo! Não tem mais SQL aqui no server.js
+        const usuarios = await Usuario.listarTodos();
+        return res.status(200).json(usuarios);
     } catch (erro) {
         console.error('Erro ao listar usuários:', erro);
         return res.status(500).json({ erro: 'Falha ao buscar usuários no banco de dados.' });
@@ -246,12 +216,12 @@ app.put('/editar-usuario/:id', async (req, res) => {
     }
 });
 
-// 4. EXCLUIR USUÁRIO
+// 4. EXCLUIR USUÁRIO (Usando o Model)
 app.delete('/excluir-usuario/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        await db.query('DELETE FROM usuarios WHERE id = $1', [id]);
+        await Usuario.excluir(id);
         return res.status(200).json({ mensagem: 'Usuário excluído permanentemente.' });
     } catch (erro) {
         console.error('Erro ao excluir usuário:', erro);

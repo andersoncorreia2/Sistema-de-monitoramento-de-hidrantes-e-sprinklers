@@ -1,26 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db'); // Conexão com o PostgreSQL
+const Equipamento = require('../models/Equipamento'); // Chamando o Model!
 
 // Rota para o Frontend buscar todos os equipamentos e plotar no mapa
 router.get('/listar', async (req, res) => {
     try {
-        // 1. Busca os dados reais no PostgreSQL
-        const resultado = await db.query('SELECT * FROM equipamentos ORDER BY id ASC');
-        //const equipamentosDoBanco = resultado.rows;
+        // 1. Busca os dados reais no PostgreSQL através do Model
+        const equipamentosDoBanco = await Equipamento.listarTodos();
         
-        // 2. Formatação fiel ao seu data.json para NÃO QUEBRAR o frontend
-        //const equipamentosFormatados = equipamentosDoBanco.map(eq => {
-        const equipamentosFormatados = resultado.rows.map(eq => {
+        // 2. Formatação fiel ao seu frontend (NÃO ALTERAR)
+        const equipamentosFormatados = equipamentosDoBanco.map(eq => {
             return {
                 id: eq.id,
                 tipo: eq.tipo,
                 status: eq.status, 
                 locName: eq.local_nome, 
                 coords: [Number(eq.lat), Number(eq.lng)],
-                ultima: eq.ultima_leitura, // Puxa o horário real que o sensor enviou
-                
-                // Agora puxamos direto das colunas novas criadas no Passo 1!
+                ultima: eq.ultima_leitura, 
                 dados: {
                     agua: eq.agua || "OK", 
                     pressao_bar: eq.pressao_bar !== null ? Number(eq.pressao_bar) : (eq.tipo === 'Hidrante' ? 7.5 : 2.0), 

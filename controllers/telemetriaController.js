@@ -1,16 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const Telemetria = require('../models/Telemetria');
+const Equipamento = require('../models/Equipamento');
 
 // Rota para receber dados dos sensores de HIDRANTES
 router.post('/hidrante', async (req, res) => {
-    // 1. Recebe os dados JSON enviados pelo sensor
-    const { 
-        id_equipamento, pressao_bar, vazao_lpm, 
-        volume_rede_m3, nivel_agua, alerta_vandalismo, alerta_corrosao 
-    } = req.body;
-
     try {
-        // 2. Regra de Negócio: Avaliação do Status
+        const { alerta_vandalismo, alerta_corrosao, nivel_agua, pressao_bar, id_equipamento } = req.body;
         let status = 'operacional';
         
         if (alerta_vandalismo === true || alerta_corrosao === true || nivel_agua === 'Crítico' || pressao_bar < 4.0) {
@@ -19,29 +15,21 @@ router.post('/hidrante', async (req, res) => {
             status = 'atencao';
         }
 
-        // 3. Aqui você conectaria com o Model (Banco de Dados) para salvar o histórico
-        // await db.Leituras_Hidrante.create({ id_equipamento, pressao_bar, ..., data_hora: new Date() });
-        // await db.Equipamentos.update({ status_atual: status }, { where: { id_equipamento } });
+        // Delegação MVC pura
+        await Telemetria.registrarLeituraHidrante(req.body);
+        await Equipamento.atualizarStatus(id_equipamento, status);
 
-        return res.status(201).json({ 
-            mensagem: 'Leitura do hidrante registrada com sucesso', 
-            novo_status: status 
-        });
+        return res.status(201).json({ mensagem: 'Leitura de hidrante registrada', novo_status: status });
     } catch (erro) {
-        return res.status(500).json({ erro: 'Erro interno ao processar dados do hidrante' });
+        console.error("Erro na telemetria de hidrante:", erro);
+        return res.status(500).json({ erro: 'Erro interno ao processar dados' });
     }
 });
 
 // Rota para receber dados dos sensores de SPRINKLERS
 router.post('/sprinkler', async (req, res) => {
-    // 1. Recebe os dados JSON enviados pelo sensor
-    const { 
-        id_equipamento, pressao_bar, vazao_lpm, 
-        volume_rede_m3, status_obstrucao, status_quebrado 
-    } = req.body;
-
     try {
-        // 2. Regra de Negócio: Avaliação do Status
+        const { status_quebrado, status_obstrucao, pressao_bar, id_equipamento } = req.body;
         let status = 'operacional';
         
         if (status_quebrado === true || status_obstrucao === true || pressao_bar < 1.2) {
@@ -50,16 +38,14 @@ router.post('/sprinkler', async (req, res) => {
             status = 'atencao';
         }
 
-        // 3. Salvamento via Model (Banco de Dados)
-        // await db.Leituras_Sprinkler.create({ id_equipamento, pressao_bar, ..., data_hora: new Date() });
-        // await db.Equipamentos.update({ status_atual: status }, { where: { id_equipamento } });
+        // Delegação MVC pura
+        await Telemetria.registrarLeituraSprinkler(req.body);
+        await Equipamento.atualizarStatus(id_equipamento, status);
 
-        return res.status(201).json({ 
-            mensagem: 'Leitura do sprinkler registrada com sucesso', 
-            novo_status: status 
-        });
+        return res.status(201).json({ mensagem: 'Leitura de sprinkler registrada', novo_status: status });
     } catch (erro) {
-        return res.status(500).json({ erro: 'Erro interno ao processar dados do sprinkler' });
+        console.error("Erro na telemetria de sprinkler:", erro);
+        return res.status(500).json({ erro: 'Erro interno ao processar dados' });
     }
 });
 

@@ -30,12 +30,6 @@ async function loadData() {
         // O seu controller retorna a lista (array) direto, então jogamos ela na variável
         equipamentos = await response.json(); 
 
-        // Gera timestamps dinâmicos para simular "dados recentes"
-        equipamentos.forEach(e => {
-            const m = Math.floor(Math.random() * 60) + 3;
-            e.ultima = new Date(Date.now() - m * 60000).toISOString().slice(0, 16).replace('T', ' ');
-        });
-
         console.log("🌍 Equipamentos carregados do PostgreSQL com sucesso!");
     } catch (error) {
         console.error("Erro no carregamento:", error);
@@ -117,21 +111,6 @@ async function startAppOnce() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // ==========================================
-    // MOSTRAR / OCULTAR SENHA (OLHINHO)
-    // ==========================================
-    document.getElementById('toggle-password').addEventListener('click', function() {
-        const passInput = document.getElementById('login-pass');
-        if (passInput.type === 'password') {
-            passInput.type = 'text';
-            this.textContent = '🙈'; // Muda para o macaquinho/olho fechado
-        } else {
-            passInput.type = 'password';
-            this.textContent = '👁️'; // Volta para o olho aberto
-        }
-    });
-
-    // 🚨 A LINHA 'await loadData();' FOI REMOVIDA DAQUI! 🚨
 
     // 2. Verifica Login
     const existingToken = localStorage.getItem('authToken');
@@ -148,6 +127,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Removemos ouvintes antigos para evitar duplicação (boa prática)
     form.replaceWith(form.cloneNode(true));
     const newForm = document.getElementById('login-form');
+
+    // ==========================================
+    // MOSTRAR / OCULTAR SENHA (OLHINHO)
+    // ==========================================
+    document.getElementById('toggle-password').addEventListener('click', function() {
+        const passInput = document.getElementById('login-pass');
+        if (passInput.type === 'password') {
+            passInput.type = 'text';
+            this.textContent = '🙈'; // Muda para o macaquinho/olho fechado
+        } else {
+            passInput.type = 'password';
+            this.textContent = '👁️'; // Volta para o olho aberto
+        }
+    });
 
     newForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -252,51 +245,50 @@ document.addEventListener('DOMContentLoaded', async () => {
             err.style.display = 'block';
         }
     });
-});
-
-// ==========================================
-// LÓGICA DE RECUPERAÇÃO DE SENHA (MFA)
-// ==========================================
-document.getElementById('btn-recuperar').addEventListener('click', async (e) => {
-    e.preventDefault(); // Evita que a página recarregue ao clicar no link
+    // ==========================================
+    // LÓGICA DE RECUPERAÇÃO DE SENHA (MFA)
+    // ==========================================
+    document.getElementById('btn-recuperar').addEventListener('click', async (e) => {
+        e.preventDefault(); // Evita que a página recarregue ao clicar no link
         
-    const user = document.getElementById('login-user').value.trim();
-    const err = document.getElementById('login-error');
+        const user = document.getElementById('login-user').value.trim();
+        const err = document.getElementById('login-error');
 
-    // 1. Verifica se o usuário digitou o login antes de pedir o código
-    if (!user) {
-        err.textContent = 'Por favor, digite seu Usuário acima antes de recuperar a senha.';
-        err.style.display = 'block';
-        return;
-    }
+        // 1. Verifica se o usuário digitou o login antes de pedir o código
+        if (!user) {
+            err.textContent = 'Por favor, digite seu Usuário acima antes de recuperar a senha.';
+            err.style.display = 'block';
+            return;
+        }
 
-    err.style.display = 'none';
-    toast('Gerando código e enviando para o seu e-mail...');
+        err.style.display = 'none';
+        toast('Gerando código e enviando para o seu e-mail...');
 
-    try {
-        // 2. Aciona a nossa nova rota no Node.js
-        const resposta = await fetch('http://localhost:3000/recuperar-senha', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ usuario: user })
-        });
+        try {
+            // 2. Aciona a nossa nova rota no Node.js
+            const resposta = await fetch('http://localhost:3000/recuperar-senha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ usuario: user })
+            });
 
-        const dados = await resposta.json();
+            const dados = await resposta.json();
 
-        if (resposta.ok) {
-            toast('📧 Código enviado! Verifique seu e-mail.');
+            if (resposta.ok) {
+                toast('📧 Código enviado! Verifique seu e-mail.');
                 
-            // 3. Mostra a caixinha escondida para digitar os 6 dígitos
-            document.getElementById('area-recuperacao').style.display = 'block';
-            document.getElementById('btn-recuperar').style.display = 'none'; // Esconde o link para evitar cliques duplos
-        } else {
-            err.textContent = dados.erro || 'Erro ao tentar enviar o código.';
+                // 3. Mostra a caixinha escondida para digitar os 6 dígitos
+                document.getElementById('area-recuperacao').style.display = 'block';
+                document.getElementById('btn-recuperar').style.display = 'none'; // Esconde o link para evitar cliques duplos
+            } else {
+                err.textContent = dados.erro || 'Erro ao tentar enviar o código.';
+                err.style.display = 'block';
+            }
+        } catch (erro) {
+            err.textContent = 'Falha de comunicação com o servidor. O backend está rodando?';
             err.style.display = 'block';
         }
-    } catch (erro) {
-        err.textContent = 'Falha de comunicação com o servidor. O backend está rodando?';
-        err.style.display = 'block';
-    }
+    });
 });
 
 /* ===================== Helpers ===================== */
@@ -777,6 +769,15 @@ async function carregarTabelaUsuarios() {
     const tbody = document.getElementById('tbody-usuarios');
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 15px;">⏳ Carregando efetivo...</td></tr>';
 
+    // Descobre quem está logado e o seu Cargo lendo o Token
+    let usuarioLogado = "";
+    let cargoLogado = "";
+    if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        usuarioLogado = payload.login;
+        cargoLogado = payload.permissao; // Puxa se é Comando, Supervisor ou Operador
+    }
+
     try {
         const resposta = await fetch('http://localhost:3000/listar-usuarios', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -791,22 +792,56 @@ async function carregarTabelaUsuarios() {
             const tr = document.createElement('tr');
             tr.style.borderBottom = '1px solid #eee';
             
-            // Note que estamos passando o objeto 'u' inteiro para a função de Editar
+            // ==========================================
+            // REGRAS DE HIERARQUIA E SEGURANÇA (RBAC)
+            // ==========================================
+            let podeEditar = true;
+            let podeExcluir = true;
+
+            // Regra 1: Supervisor só altera/exclui subordinados (Operadores)
+            if (cargoLogado === 'Supervisor' && u.cargo !== 'Operador') {
+                // Se não for ele mesmo, bloqueia edição
+                if (u.login !== usuarioLogado) {
+                    podeEditar = false;
+                }
+                podeExcluir = false; // Bloqueia exclusão de Comando e de outros Supervisores
+            }
+
+            // Regra 2: Ninguém pode excluir a si mesmo
+            if (u.login === usuarioLogado) {
+                podeExcluir = false;
+            }
+
+            // ==========================================
+            // MONTANDO OS BOTÕES
+            // ==========================================
+            let btnEditar = podeEditar 
+                ? `<button class="btn small" style="background-color: #3b82f6; color: white;" onclick='editarUsuario(${JSON.stringify(u)})'>✏️ Editar</button>`
+                : `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;" title="Sem permissão hierárquica">🚫 Editar</button>`;
+
+            let btnExcluir = podeExcluir 
+                ? `<button class="btn small danger" onclick="excluirUsuario('${u.id}', '${u.login}')">🗑️ Excluir</button>`
+                : `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;" title="Ação não permitida">🚫 Excluir</button>`;
+            
+            // Ajuste visual para o próprio usuário
+            if (u.login === usuarioLogado) {
+                btnExcluir = `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;" title="Você não pode excluir sua própria conta">🚫 Atual</button>`;
+            }
+            
             tr.innerHTML = `
                 <td style="padding: 10px;">${u.posto_grad || '-'}</td>
                 <td style="padding: 10px; font-weight: bold; color: #333;">${u.login}</td>
                 <td style="padding: 10px;">${u.matricula || '-'}</td>
                 <td style="padding: 10px;"><span class="pill" style="background:#e5e7eb; color:#374151;">${u.cargo}</span></td>
                 <td style="padding: 10px; text-align: center;">
-                    <button class="btn small" style="background-color: #3b82f6; color: white;" onclick='editarUsuario(${JSON.stringify(u)})'>✏️ Editar</button>
-                    <button class="btn small danger" onclick="excluirUsuario('${u.id}', '${u.login}')">🗑️ Excluir</button>
+                    ${btnEditar}
+                    ${btnExcluir}
                 </td>
             `;
             tbody.appendChild(tr);
         });
     } catch (erro) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red; padding: 15px;">Falha ao carregar dados de rede.</td></tr>';
-        console.error(erro);
     }
 }
 
