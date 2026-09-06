@@ -150,13 +150,12 @@ app.use('/telemetria', protegerRota, telemetriaController);
 app.use('/equipamentos', protegerRota, equipamentosController);
 app.use('/notificar', protegerRota, notificacaoController);
 
-
 // ==========================================
-// ROTAS DE GESTÃO DE USUÁRIOS (CRUD Completo)
+// ROTAS DE GESTÃO DE USUÁRIOS (CRUD Completo PROTEGIDO)
 // ==========================================
 
-// 1. CADASTRAR NOVO USUÁRIO (Usando o Model)
-app.post('/cadastrar-usuario', async (req, res) => {
+// 1. CADASTRAR NOVO USUÁRIO
+app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
     const { login, senha, email, telefone, cargo, posto_grad, matricula } = req.body;
 
     if (!login || !senha || !cargo) {
@@ -164,13 +163,11 @@ app.post('/cadastrar-usuario', async (req, res) => {
     }
 
     try {
-        // Usa o Model para checar se já existe
         const userExiste = await Usuario.buscarPorLogin(login);
         if (userExiste) {
             return res.status(400).json({ erro: 'Este nome de Guerra/Login já está em uso.' });
         }
 
-        // Usa o Model para salvar
         await Usuario.cadastrar(req.body);
         return res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso!' });
     } catch (erro) {
@@ -179,10 +176,9 @@ app.post('/cadastrar-usuario', async (req, res) => {
     }
 });
 
-// 2. LISTAR TODOS OS USUÁRIOS (Usando o Model!)
-app.get('/listar-usuarios', async (req, res) => {
+// 2. LISTAR TODOS OS USUÁRIOS
+app.get('/listar-usuarios', protegerRota, async (req, res) => {
     try {
-        // Olha como ficou limpo! Não tem mais SQL aqui no server.js
         const usuarios = await Usuario.listarTodos();
         return res.status(200).json(usuarios);
     } catch (erro) {
@@ -192,20 +188,20 @@ app.get('/listar-usuarios', async (req, res) => {
 });
 
 // 3. EDITAR/ATUALIZAR USUÁRIO EXISTENTE
-app.put('/editar-usuario/:id', async (req, res) => {
+app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
     const { login, email, telefone, cargo, posto_grad, matricula, senha } = req.body;
 
     try {
-        // Se a senha foi preenchida, atualizamos ela também. Se não, mantemos a antiga.
+        // Correção das colunas para os nomes oficiais da nuvem: usuario, funcao, senha_hash
         if (senha && senha.trim() !== '') {
             await db.query(
-                'UPDATE usuarios SET login=$1, email=$2, telefone=$3, cargo=$4, posto_grad=$5, matricula=$6, senha_segura=$7 WHERE id=$8',
+                'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6, senha_hash=$7 WHERE id=$8',
                 [login, email, telefone, cargo, posto_grad, matricula, String(senha), id]
             );
         } else {
             await db.query(
-                'UPDATE usuarios SET login=$1, email=$2, telefone=$3, cargo=$4, posto_grad=$5, matricula=$6 WHERE id=$7',
+                'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6 WHERE id=$7',
                 [login, email, telefone, cargo, posto_grad, matricula, id]
             );
         }
@@ -216,8 +212,8 @@ app.put('/editar-usuario/:id', async (req, res) => {
     }
 });
 
-// 4. EXCLUIR USUÁRIO (Usando o Model)
-app.delete('/excluir-usuario/:id', async (req, res) => {
+// 4. EXCLUIR USUÁRIO
+app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
 
     try {

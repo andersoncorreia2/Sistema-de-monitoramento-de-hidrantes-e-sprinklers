@@ -8,11 +8,10 @@ const pool = new Pool({
     database: process.env.DB_NAME,
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
+    ssl: { rejectUnauthorized: false } // OBRIGATÓRIO: Libera a conexão segura com o Supabase
 });
 
-// Testa a conexão assim que o servidor liga
-pool.connect()
-    .then(() => console.log('🗄️ Conectado ao banco de dados PostgreSQL com sucesso!'))
-    .catch(err => console.error('❌ Erro ao conectar ao PostgreSQL:', err.stack));
-
-module.exports = pool;
+// OBRIGATÓRIO: Exporta a função query para o resto do sistema poder usar
+module.exports = {
+    query: (text, params) => pool.query(text, params),
+};
