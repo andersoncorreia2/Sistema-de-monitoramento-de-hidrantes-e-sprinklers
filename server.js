@@ -82,6 +82,60 @@ app.post('/login', async (req, res) => {
     }
 });
 
+// ==========================================
+// ROTA: Validação de Código de Turno (AppViatura)
+// ==========================================
+app.post('/validar-turno', async (req, res) => {
+    const { matricula, codigo_digitado } = req.body;
+    
+    console.log(`[AppViatura] Tentativa de acesso. Matrícula: ${matricula}, Código: ${codigo_digitado}`);
+
+    if (!matricula || !codigo_digitado) {
+        return res.status(400).json({ erro: 'Matrícula e Código do Turno são obrigatórios.' });
+    }
+
+    try {
+        const query = `
+            SELECT regiao_simi, carga_horaria 
+            FROM codigos_turno 
+            WHERE codigo_acesso = $1 AND data_expiracao > NOW()
+        `;
+        
+        const result = await db.query(query, [codigo_digitado]);
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ 
+                erro: 'Acesso negado: Código operacional inválido ou turno encerrado.' 
+            });
+        }
+
+        const infoTurno = result.rows[0];
+
+        // 🟢 NOVO: Gerando o Token JWT Tático da Guarnição
+        const tokenTatico = jwt.sign(
+            { 
+                corporacao: 'CBMPE', 
+                matricula: matricula,
+                permissao: 'Tatico',
+                regiao: infoTurno.regiao_simi
+            }, 
+            CHAVE_SECRETA, 
+            { expiresIn: `${infoTurno.carga_horaria}h` } // Expira junto com o turno
+        );
+
+        return res.status(200).json({
+            sucesso: true,
+            mensagem: 'Guarnição autenticada. Serviço assumido.',
+            regiao_alocada: infoTurno.regiao_simi,
+            token: tokenTatico // 🟢 NOVO: Enviando o token para o celular
+        });
+
+    } catch (erro) {
+        console.error('⚠️ Erro na validação do turno:', erro);
+        return res.status(500).json({ erro: 'Erro interno ao validar o código operacional.' });
+    }
+});
+
 // Rota para Gerar e Enviar Código de Recuperação (Usando Model)
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
@@ -229,6 +283,6 @@ app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
 // INICIAR SERVIDOR
 // ==========================================
 const PORT = 3000;
-app.listen(PORT, () => {
-    console.log(`🚒 Servidor do CBMPE rodando com sucesso na porta ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚒 Servidor do CBMPE rodando com sucesso na porta ${PORT} em todas as interfaces`);
 });

@@ -7,7 +7,7 @@ const Equipamento = {
             SELECT 
                 e.id_equipamento AS id,
                 e.tipo,
-                COALESCE(e.edificio_nome, e.logradouro) AS local_nome,
+                CONCAT(e.logradouro, ', ', e.numero, ', ', e.bairro, ' - ', e.cidade, COALESCE(' | ' || e.edificio_nome, ''), CASE WHEN e.andar IS NOT NULL OR e.corredor_setor IS NOT NULL THEN CONCAT(' (Local exato: ', e.andar, ' - ', e.corredor_setor, ')') ELSE '' END) AS local_nome,
                 e.latitude AS lat,
                 e.longitude AS lng,
                 e.responsavel_nome,
@@ -46,7 +46,28 @@ const Equipamento = {
     // 2. A coluna status não existe mais no BD (o frontend calcula sozinho)
     atualizarStatus: async (id_equipamento, status) => {
         return true; // Retorna true silenciosamente para não quebrar o sistema
+    },
+
+    // 3. Busca os hidrantes mais próximos de uma coordenada (Fórmula de Haversine para o App Mobile)
+    buscarProximos: async (latViatura, lngViatura) => {
+        const query = `
+            SELECT 
+                id_equipamento AS id, 
+                tipo, 
+                COALESCE(edificio_nome, logradouro) AS local_nome, 
+                latitude AS lat, 
+                longitude AS lng,
+                ( 6371 * acos( cos( radians($1) ) * cos( radians( latitude ) ) 
+                * cos( radians( longitude ) - radians($2) ) 
+                + sin( radians($1) ) * sin( radians( latitude ) ) ) ) AS distancia_km
+            FROM equipamentos 
+            WHERE tipo = 'Hidrante' 
+            ORDER BY distancia_km ASC 
+            LIMIT 5;
+        `;
+        const resultado = await db.query(query, [latViatura, lngViatura]);
+        return resultado.rows;
     }
-};
+}; // Fim do objeto Equipamento
 
 module.exports = Equipamento;

@@ -64,6 +64,36 @@ router.get('/listar', async (req, res) => {
         console.error('Erro ao buscar equipamentos:', erro);
         return res.status(500).json({ erro: 'Erro ao buscar dados no banco.' });
     }
+}); // <--- ESTE É O FECHAMENTO DA ROTA /listar ATUAL
+
+// ==========================================
+// NOVA ROTA: App Mobile buscar hidrantes próximos via GPS
+// ==========================================
+router.get('/proximos', async (req, res) => {
+    try {
+        const { lat, lng } = req.query;
+
+        if (!lat || !lng) {
+            return res.status(400).json({ erro: 'Latitude e longitude da viatura são obrigatórias.' });
+        }
+
+        const equipamentosDoBanco = await Equipamento.buscarProximos(Number(lat), Number(lng));
+        
+        const hidrantesProximos = equipamentosDoBanco.map(eq => {
+            return {
+                id: eq.id,
+                locName: eq.local_nome,
+                coords: [Number(eq.lat), Number(eq.lng)],
+                distancia_km: Number(eq.distancia_km).toFixed(2) + ' km'
+            };
+        });
+
+        return res.status(200).json(hidrantesProximos);
+
+    } catch (erro) {
+        console.error('Erro ao calcular distância:', erro);
+        return res.status(500).json({ erro: 'Erro ao buscar hidrantes próximos no banco.' });
+    }
 });
 
 module.exports = router;
