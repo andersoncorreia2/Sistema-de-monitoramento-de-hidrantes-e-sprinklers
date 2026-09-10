@@ -745,3 +745,64 @@ if (formNovoUsuario) {
         } catch (erro) { toast('⚠️ Erro de conexão com o servidor Node.js.'); }
     });
 }
+
+// ==========================================
+// GESTÃO DE DESPACHO DE GUARNIÇÕES
+// ==========================================
+
+const viewDespacho = document.getElementById('view-despacho-guarnicao');
+
+// Evento para abrir a tela de despacho a partir da tabela
+document.getElementById('btn-abrir-despacho')?.addEventListener('click', () => {
+    document.getElementById('view-tabela-usuarios').style.display = 'none';
+    document.getElementById('view-form-usuario').style.display = 'none';
+    viewDespacho.style.display = 'block';
+    
+    document.getElementById('titulo-modal-usuarios').textContent = "Despacho Operacional";
+    document.getElementById('resultado-codigo').style.display = 'none'; // Esconde o resultado anterior
+});
+
+// Evento para o botão de voltar (que adicionamos no HTML)
+document.getElementById('btn-voltar-tabela-despacho')?.addEventListener('click', mostrarTabelaUsuarios);
+
+// Formulário de submissão para gerar o código tático
+document.getElementById('form-gerar-codigo')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const regiao = document.getElementById('select-regiao-turno').value;
+    const carga = document.getElementById('select-carga-turno').value;
+    const token = localStorage.getItem('authToken');
+
+    toast('Forjando chave criptográfica...');
+
+    try {
+        const resposta = await fetch('http://localhost:3000/gerar-codigo-turno', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify({ regiao_simi: regiao, carga_horaria: carga })
+        });
+        
+        const dados = await resposta.json();
+        
+        if (resposta.ok) {
+            // Exibe o painel com o resultado
+            document.getElementById('resultado-codigo').style.display = 'block';
+            document.getElementById('display-codigo-gerado').textContent = dados.codigo_acesso;
+            
+            // Formata a data de expiração para o padrão brasileiro
+            const dataValidade = new Date(dados.validade);
+            const validadeFormatada = dataValidade.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+            
+            document.getElementById('display-validade-gerada').textContent = `Válido até: ${validadeFormatada}`;
+            
+            toast('✅ Chave operacional gerada e gravada no banco!');
+        } else {
+            toast(`⚠️ Erro: ${dados.erro}`);
+        }
+    } catch (erro) {
+        toast('⚠️ Falha de comunicação com o servidor Central.');
+    }
+});

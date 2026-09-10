@@ -183,7 +183,10 @@
       <div id="view-tabela-usuarios">
         <!-- Navegação da Tabela -->
         <div style="display: flex; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-            <button class="btn" id="btn-novo-usuario" style="background-color: #10b981; color: white;">➕ Cadastrar Novo Militar</button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn" id="btn-novo-usuario" style="background-color: #10b981; color: white;">➕ Cadastrar Novo Militar</button>
+                <button class="btn" id="btn-abrir-despacho" style="background-color: #dc2626; color: white;">🚨 Despachar Guarnição</button>
+            </div>
             <button type="button" class="btn" id="btn-fechar-tabela" style="border: 1px solid #ccc; background-color: #f9fafb; color: #333; font-weight: bold;">🚪 Fechar Gestão</button>
         </div>
         
@@ -256,6 +259,40 @@
               <button type="submit" class="btn" style="width: 50%; background-color: #10b981; color: white; font-weight: bold;">Salvar Usuário</button>
           </div>
         </form>
+      </div>
+
+      <!-- VISÃO 3: DESPACHO DE GUARNIÇÃO -->
+      <div id="view-despacho-guarnicao" style="display: none; padding: 10px;">
+          <h3 style="margin-top: 0; color: #111827;">🚨 Emitir Código de Serviço</h3>
+          <p style="font-size: 14px; color: #555; margin-bottom: 20px;">Gere uma chave de acesso segura para a guarnição de prontidão.</p>
+          
+          <form id="form-gerar-codigo">
+              <label style="display: block; font-weight: bold; margin-bottom: 5px;">Região de Atuação:</label>
+              <select id="select-regiao-turno" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px;" required>
+                  <option value="METROPOLITANA">Região Metropolitana (RMR)</option>
+                  <option value="ZONADAMATA">Zona da Mata</option>
+                  <option value="AGRESTE">Agreste</option>
+                  <option value="SERTAO">Sertão</option>
+              </select>
+
+              <label style="display: block; font-weight: bold; margin-bottom: 5px;">Carga Horária (Prontidão):</label>
+              <select id="select-carga-turno" style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 4px;" required>
+                  <option value="12">12 Horas</option>
+                  <option value="24">24 Horas</option>
+              </select>
+
+              <div style="display: flex; gap: 10px; margin-top: 10px;">
+                  <button type="button" class="btn" id="btn-voltar-tabela-despacho" style="width: 50%; border: 1px solid #ccc; background-color: #f9fafb; color: #333; font-weight: bold;">⬅ Voltar</button>
+                  <button type="submit" class="btn" style="width: 50%; background-color: #dc2626; color: white; font-weight: bold;">Gerar Chave</button>
+              </div>
+          </form>
+
+          <!-- Painel de Exibição do Código Gerado -->
+          <div id="resultado-codigo" style="display: none; margin-top: 25px; padding: 20px; background-color: #fef2f2; border: 2px dashed #dc2626; border-radius: 8px; text-align: center;">
+              <p style="margin: 0; font-size: 14px; color: #555; font-weight: bold;">Código Operacional da Viatura:</p>
+              <h2 id="display-codigo-gerado" style="margin: 15px 0; font-size: 32px; color: #b91c1c; letter-spacing: 4px;">---</h2>
+              <p id="display-validade-gerada" style="margin: 0; font-size: 13px; color: #111827; font-weight: bold;"></p>
+          </div>
       </div>
 
     </div>

@@ -136,6 +136,47 @@ app.post('/validar-turno', async (req, res) => {
     }
 });
 
+// ==========================================
+// ROTA: Gerar Código de Turno (Painel Central SIMI)
+// ==========================================
+app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
+    const { regiao_simi, carga_horaria } = req.body;
+
+    if (!regiao_simi || !carga_horaria) {
+        return res.status(400).json({ erro: 'Região e carga horária são obrigatórias.' });
+    }
+
+    try {
+        const caracteres = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let sufixo = '';
+        for (let i = 0; i < 4; i++) {
+            sufixo += caracteres.charAt(Math.floor(Math.random() * caracteres.length));
+        }
+        
+        const prefixo = regiao_simi.substring(0, 4).toUpperCase();
+        const codigo_gerado = `${prefixo}-${sufixo}`;
+
+        const query = `
+            INSERT INTO codigos_turno (codigo_acesso, regiao_simi, carga_horaria, data_expiracao)
+            VALUES ($1, $2, $3, NOW() + INTERVAL '${carga_horaria} hours')
+            RETURNING *;
+        `;
+        
+        const result = await db.query(query, [codigo_gerado, regiao_simi, carga_horaria]);
+
+        return res.status(201).json({
+            sucesso: true,
+            mensagem: 'Código operacional gerado com sucesso!',
+            codigo_acesso: result.rows[0].codigo_acesso,
+            validade: result.rows[0].data_expiracao
+        });
+
+    } catch (erro) {
+        console.error('⚠️ Erro ao gerar código de turno:', erro);
+        return res.status(500).json({ erro: 'Erro interno ao gerar a chave operacional.' });
+    }
+});
+
 // Rota para Gerar e Enviar Código de Recuperação (Usando Model)
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
@@ -282,7 +323,7 @@ app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚒 Servidor do CBMPE rodando com sucesso na porta ${PORT} em todas as interfaces`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
 });
