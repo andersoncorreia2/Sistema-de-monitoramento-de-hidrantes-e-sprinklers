@@ -82,7 +82,7 @@ async function loadData() {
         const token = localStorage.getItem('authToken');
         if (!token) return;
 
-        const response = await fetch('http://localhost:3000/equipamentos/listar', {
+        const response = await fetch('https://api-simi-core.onrender.com/equipamentos/listar', {
             method: 'GET',
             headers: { 
                 'Content-Type': 'application/json', 
@@ -361,7 +361,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         err.style.display = 'none';
 
         try {
-            const respostaLogin = await fetch('http://localhost:3000/login', {
+            const respostaLogin = await fetch('https://api-simi-core.onrender.com/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ usuario: user, senha: pass })
@@ -423,7 +423,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             toast('Gerando código e enviando para o seu e-mail...');
 
             try {
-                const resposta = await fetch('http://localhost:3000/recuperar-senha', {
+                const resposta = await fetch('https://api-simi-core.onrender.com/recuperar-senha', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ usuario: user })
@@ -464,7 +464,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             err.style.display = 'none';
 
             try {
-                const resposta = await fetch('http://localhost:3000/trocar-senha-codigo', {
+                const resposta = await fetch('https://api-simi-core.onrender.com/trocar-senha-codigo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ usuario: user, codigo: codigo, novaSenha: novaSenha })
@@ -507,7 +507,7 @@ async function notificarResponsavel(id) {
     const token = localStorage.getItem('authToken');
 
     try {
-        const resposta = await fetch('http://localhost:3000/notificar/enviar-alerta', {
+        const resposta = await fetch('https://api-simi-core.onrender.com/notificar/enviar-alerta', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ id_equipamento: eq.id, tipo: eq.tipo, local: eq.locName, falhas: falhasTexto, responsavel: eq.responsavel })
@@ -658,7 +658,7 @@ async function carregarTabelaUsuarios() {
     }
 
     try {
-        const resposta = await fetch('http://localhost:3000/listar-usuarios', { headers: { 'Authorization': `Bearer ${token}` } });
+        const resposta = await fetch('https://api-simi-core.onrender.com/listar-usuarios', { headers: { 'Authorization': `Bearer ${token}` } });
         if (!resposta.ok) throw new Error("Erro ao buscar usuários");
         
         const usuarios = await resposta.json();
@@ -708,7 +708,7 @@ window.excluirUsuario = async function(id, login) {
     const token = localStorage.getItem('authToken');
     toast('Excluindo usuário...');
     try {
-        const resposta = await fetch(`http://localhost:3000/excluir-usuario/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+        const resposta = await fetch(`https://api-simi-core.onrender.com/excluir-usuario/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
         const dados = await resposta.json();
         if (resposta.ok) { toast('✅ ' + dados.mensagem); carregarTabelaUsuarios(); } 
         else { toast('⚠️ Erro: ' + dados.erro); }
@@ -728,7 +728,7 @@ if (formNovoUsuario) {
         const matricula = document.getElementById('novo-user-mat').value.trim();
 
         const token = localStorage.getItem('authToken');
-        const url = id ? `http://localhost:3000/editar-usuario/${id}` : 'http://localhost:3000/cadastrar-usuario';
+        const url = id ? `https://api-simi-core.onrender.com/editar-usuario/${id}` : 'https://api-simi-core.onrender.com/cadastrar-usuario';
         const method = id ? 'PUT' : 'POST';
 
         toast(id ? 'Atualizando dados no banco...' : 'Salvando novo usuário...');
@@ -776,7 +776,7 @@ document.getElementById('form-gerar-codigo')?.addEventListener('submit', async (
     toast('Forjando chave criptográfica...');
 
     try {
-        const resposta = await fetch('http://localhost:3000/gerar-codigo-turno', {
+        const resposta = await fetch('https://api-simi-core.onrender.com/gerar-codigo-turno', {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
