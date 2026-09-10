@@ -67,7 +67,7 @@ router.get('/listar', async (req, res) => {
 }); // <--- ESTE É O FECHAMENTO DA ROTA /listar ATUAL
 
 // ==========================================
-// NOVA ROTA: App Mobile buscar hidrantes próximos via GPS
+// NOVA ROTA: App Mobile buscar hidrantes próximos via GPS (COM FILTRO TÁTICO)
 // ==========================================
 router.get('/proximos', async (req, res) => {
     try {
@@ -77,9 +77,35 @@ router.get('/proximos', async (req, res) => {
             return res.status(400).json({ erro: 'Latitude e longitude da viatura são obrigatórias.' });
         }
 
+        // 1. Traz a lista bruta do banco ordenada por distância
         const equipamentosDoBanco = await Equipamento.buscarProximos(Number(lat), Number(lng));
         
-        const hidrantesProximos = equipamentosDoBanco.map(eq => {
+        // 2. 🛡️ O FILTRO TÁTICO: O servidor bloqueia equipamentos defeituosos
+        const hidrantesAptos = equipamentosDoBanco.filter(eq => {
+            // Regra A: Apenas hidrantes interessam para o combate da viatura
+            if (eq.tipo !== 'Hidrante') return false;
+
+            // Regra B: Extrai a telemetria física do hidrante
+            const p = parseFloat(eq.pressao_bar);
+            const q = parseFloat(eq.vazao_lpm);
+            const agua = String(eq.agua || '').toUpperCase();
+
+            // Regra C: Cruzamento com os limites críticos de falha
+            const semAgua = agua.includes('BAIXA') || agua.includes('AUSENTE') || agua.includes('NOK');
+            const pressaoBaixa = !isNaN(p) && p < 4.0;
+            const vazaoBaixa = !isNaN(q) && q < 500;
+
+            // Se o equipamento apresentar qualquer sintoma de inoperância, é cortado
+            if (semAgua || pressaoBaixa || vazaoBaixa) {
+                return false; 
+            }
+
+            // Aprovado no teste de sobrevivência: Equipamento Operacional
+            return true;
+        });
+
+        // 3. Mapeia apenas os hidrantes seguros para enviar ao celular
+        const hidrantesProximos = hidrantesAptos.map(eq => {
             return {
                 id: eq.id,
                 locName: eq.local_nome,
