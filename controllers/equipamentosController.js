@@ -67,7 +67,7 @@ router.get('/listar', async (req, res) => {
 }); // <--- ESTE É O FECHAMENTO DA ROTA /listar ATUAL
 
 // ==========================================
-// NOVA ROTA: App Mobile buscar hidrantes próximos via GPS (COM FILTRO TÁTICO)
+// NOVA ROTA: App Mobile (Com Sincronismo Tático de Telemetria e GPS)
 // ==========================================
 router.get('/proximos', async (req, res) => {
     try {
@@ -77,34 +77,40 @@ router.get('/proximos', async (req, res) => {
             return res.status(400).json({ erro: 'Latitude e longitude da viatura são obrigatórias.' });
         }
 
-        // 1. Traz a lista bruta do banco ordenada por distância
-        const equipamentosDoBanco = await Equipamento.buscarProximos(Number(lat), Number(lng));
+        // 1. Busca a lista com as distâncias do GPS (mas que não tem a telemetria)
+        const equipamentosComDistancia = await Equipamento.buscarProximos(Number(lat), Number(lng));
         
-        // 2. 🛡️ O FILTRO TÁTICO: O servidor bloqueia equipamentos defeituosos
-        const hidrantesAptos = equipamentosDoBanco.filter(eq => {
-            // Regra A: Apenas hidrantes interessam para o combate da viatura
-            if (eq.tipo !== 'Hidrante') return false;
+        // 2. Busca a lista completa (a mesma do painel) que TEM a telemetria atualizada
+        const todosComTelemetria = await Equipamento.listarTodos();
 
-            // Regra B: Extrai a telemetria física do hidrante
-            const p = parseFloat(eq.pressao_bar);
-            const q = parseFloat(eq.vazao_lpm);
-            const agua = String(eq.agua || '').toUpperCase();
+        // 3. 🛡️ O FILTRO TÁTICO CRUZADO
+        const hidrantesAptos = equipamentosComDistancia.filter(eqDist => {
+            // Encontra o "prontuário" de telemetria deste hidrante específico
+            const telemetria = todosComTelemetria.find(t => t.id === eqDist.id);
+            
+            // Se não achou o prontuário ou se for um Sprinkler, bloqueia
+            if (!telemetria || telemetria.tipo !== 'Hidrante') return false;
 
-            // Regra C: Cruzamento com os limites críticos de falha
+            // Extrai os dados reais para análise
+            const p = parseFloat(telemetria.pressao_bar);
+            const q = parseFloat(telemetria.vazao_lpm);
+            const agua = String(telemetria.agua || '').toUpperCase();
+
+            // Diagnóstico de falha
             const semAgua = agua.includes('BAIXA') || agua.includes('AUSENTE') || agua.includes('NOK');
             const pressaoBaixa = !isNaN(p) && p < 4.0;
             const vazaoBaixa = !isNaN(q) && q < 500;
 
-            // Se o equipamento apresentar qualquer sintoma de inoperância, é cortado
+            // Se o hidrante estiver com falha real na telemetria, ele é cortado da viatura
             if (semAgua || pressaoBaixa || vazaoBaixa) {
                 return false; 
             }
 
-            // Aprovado no teste de sobrevivência: Equipamento Operacional
-            return true;
+            // Aprovado: O equipamento tem água e pressão suficiente
+            return true; 
         });
 
-        // 3. Mapeia apenas os hidrantes seguros para enviar ao celular
+        // 4. Empacota apenas os sobreviventes para o celular
         const hidrantesProximos = hidrantesAptos.map(eq => {
             return {
                 id: eq.id,
@@ -117,8 +123,8 @@ router.get('/proximos', async (req, res) => {
         return res.status(200).json(hidrantesProximos);
 
     } catch (erro) {
-        console.error('Erro ao calcular distância:', erro);
-        return res.status(500).json({ erro: 'Erro ao buscar hidrantes próximos no banco.' });
+        console.error('Erro ao calcular distância e filtrar:', erro);
+        return res.status(500).json({ erro: 'Erro ao processar hidrantes táticos.' });
     }
 });
 
