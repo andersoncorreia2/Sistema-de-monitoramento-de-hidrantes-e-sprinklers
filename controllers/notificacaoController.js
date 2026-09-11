@@ -8,17 +8,17 @@ require('dns').setDefaultResultOrder('ipv4first');
 const router = express.Router();
 
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com', // Usar o host explícito
-    port: 465,
-    secure: true,
+    host: 'smtp.gmail.com',
+    port: 587, // 👈 MUDANÇA 1: Trocar 465 por 587
+    secure: false, // 👈 MUDANÇA 2: Mudar para false (o STARTTLS fará a segurança)
     auth: {
-        user: process.env.EMAIL_REMETENTE, 
-        pass: process.env.EMAIL_SENHA 
+        user: process.env.EMAIL_REMETENTE,
+        pass: process.env.EMAIL_SENHA
     },
     tls: {
         rejectUnauthorized: false
     },
-    family: 4 // <- TRAVA DE SEGURANÇA: Força o uso exclusivo de IPv4
+    family: 4 
 });
 
 router.post('/enviar-alerta', async (req, res) => {
