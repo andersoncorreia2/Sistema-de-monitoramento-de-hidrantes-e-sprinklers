@@ -177,21 +177,28 @@ app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
     }
 });
 
-// Rota para Gerar e Enviar Código de Recuperação (Usando Model)
+// ==========================================
+// RECUPERAÇÃO DE SENHA (MFA) - ATUALIZADO PARA NUVEM
+// ==========================================
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
 
     try {
-        const emailDestino = await Usuario.buscarEmailPorLogin(usuario);
+        // Busca direta compatível com a coluna 'usuario' da nuvem
+        const resultado = await db.query('SELECT email FROM usuarios WHERE usuario = $1', [usuario]);
         
-        if (!emailDestino) {
-            return res.status(404).json({ erro: 'Usuário não encontrado.' });
+        if (resultado.rows.length === 0 || !resultado.rows[0].email) {
+            return res.status(404).json({ erro: 'Usuário não encontrado ou sem e-mail cadastrado.' });
         }
 
+        const emailDestino = resultado.rows[0].email;
         const codigo = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiracao = new Date(Date.now() + 15 * 60000); 
-
-        await Usuario.salvarCodigoMFA(usuario, codigo, expiracao);
+        
+        // Grava o código no banco
+        await db.query(
+            `UPDATE usuarios SET codigo_recuperacao = $1, expiracao_codigo = NOW() + INTERVAL '15 minutes' WHERE usuario = $2`,
+            [codigo, usuario]
+        );
 
         const transporter = nodemailer.createTransport({
             service: 'gmail',
@@ -210,7 +217,39 @@ app.post('/recuperar-senha', async (req, res) => {
 
     } catch (erro) {
         console.error('Erro ao recuperar senha:', erro);
-        return res.status(500).json({ erro: 'Falha ao processar recuperação.' });
+        return res.status(500).json({ erro: 'Falha ao processar recuperação no banco de dados.' });
+    }
+});
+
+app.post('/trocar-senha-codigo', async (req, res) => {
+    const { usuario, codigo, novaSenha } = req.body;
+
+    if (!usuario || !codigo || !novaSenha) {
+        return res.status(400).json({ erro: 'Dados incompletos para troca de senha.' });
+    }
+
+    try {
+        // Valida código e expiração
+        const resultado = await db.query(
+            'SELECT * FROM usuarios WHERE usuario = $1 AND codigo_recuperacao = $2 AND expiracao_codigo > NOW()',
+            [usuario, codigo]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.status(400).json({ erro: 'Código inválido ou expirado. Solicite um novo.' });
+        }
+
+        // Atualiza a coluna real da nuvem ('senha_hash') e limpa o MFA
+        await db.query(
+            'UPDATE usuarios SET senha_hash = $1, codigo_recuperacao = NULL, expiracao_codigo = NULL WHERE usuario = $2',
+            [String(novaSenha), usuario]
+        );
+
+        return res.status(200).json({ mensagem: 'Senha alterada com sucesso! Você já pode entrar.' });
+
+    } catch (erro) {
+        console.error('Erro ao trocar senha:', erro);
+        return res.status(500).json({ erro: 'Falha interna ao validar o código.' });
     }
 });
 
