@@ -171,38 +171,58 @@ function addOrUpdateMarker(eq) {
     if (!map) return;
     let mk = state.markers.get(eq.id);
     const r = evaluateEquipment(eq);
+    /* ===================== Linha 121 do seu script.js ===================== */
     if (!mk) {
         // 1. Cria o marcador e vincula o Popup (card)
         mk = L.circleMarker(eq.coords, markerStyle(r.status))
             .addTo(map)
             .bindPopup(buildPopupHTML(eq));
 
+        // Variável de controle vital para o nosso cronômetro
+        let timeoutId;
+
         // --- 🟢 INÍCIO DA MELHORIA TÁTICA COMPLETA ---
 
-        // 2. Comportamento: Passar o mouse (Hover) -> Abre o Card
+        // 2. Comportamento: Passar o mouse no MARCADOR -> Abre o Card
         mk.on('mouseover', function (e) {
-            // Verifica se o popup já não está aberto (evita piscar)
+            clearTimeout(timeoutId); // Cancela o fechamento (se o mouse voltar rápido)
             if (!this.isPopupOpen()) {
                 this.openPopup();
             }
         });
 
-        // 3. Comportamento: Tirar o mouse -> Fecha o Card
-        // NOTA: Usamos um pequeno delay para dar tempo do usuário mover o mouse
-        // para dentro do popup se ele quiser clicar nos botões (Detalhes, etc).
+        // 3. Comportamento: Tirar o mouse do MARCADOR -> Inicia o cronômetro
         mk.on('mouseout', function (e) {
             const self = this;
-            // Dá 300ms (0.3s) de tolerância antes de fechar
-            setTimeout(function() {
-                // Se o mouse não estiver sobre o popup aberto, fecha.
-                // O Leaflet gerencia isso bem com o .closePopup()
+            timeoutId = setTimeout(function() {
                 self.closePopup();
-            }, 300);
+            }, 300); // 300ms de janela de tempo
         });
 
-        // 4. Mantém o comportamento de clique (para travar o popup aberto se quiser)
+        // 4. A PONTE: O que acontece quando o card efetivamente se abre
+        // O Leaflet dispara 'popupopen' e nos dá acesso ao HTML do card
+        mk.on('popupopen', function (e) {
+            const popupNode = e.popup.getElement(); // Pega a div real do card
+
+            // Se o mouse ENTRAR no card, paramos o cronômetro e ele não fecha mais!
+            popupNode.addEventListener('mouseenter', function() {
+                clearTimeout(timeoutId);
+            });
+
+            // Se o mouse SAIR do card, voltamos a iniciar o cronômetro de 300ms
+            popupNode.addEventListener('mouseleave', function() {
+                timeoutId = setTimeout(function() {
+                    mk.closePopup();
+                }, 300);
+            });
+        });
+
+        // 5. Comportamento de clique como backup (ideal para telas touch/tablets)
         mk.on('click', function (e) {
-            this.openPopup();
+            clearTimeout(timeoutId);
+            if (!this.isPopupOpen()) {
+                this.openPopup();
+            }
         });
 
         // --- 🔴 FIM DA MELHORIA TÁTICA ---
