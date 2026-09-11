@@ -2,10 +2,15 @@ const express = require('express');
 const nodemailer = require('nodemailer');
 const twilio = require('twilio'); 
 
+// 👉 ADICIONE ESTA LINHA PARA FORÇAR O IPv4 TAMBÉM AQUI
+require('dns').setDefaultResultOrder('ipv4first'); 
+
 const router = express.Router();
 
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com', // Usar o host explícito
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_REMETENTE, 
         pass: process.env.EMAIL_SENHA 

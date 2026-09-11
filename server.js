@@ -5,6 +5,9 @@ const express = require('express');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 
+// 👉 ADICIONE ESTA LINHA PARA FORÇAR O IPv4
+require('dns').setDefaultResultOrder('ipv4first');
+
 // Importando os seus Controllers
 const telemetriaController = require('./controllers/telemetriaController');
 const equipamentosController = require('./controllers/equipamentosController');
@@ -201,10 +204,12 @@ app.post('/recuperar-senha', async (req, res) => {
         );
 
         const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.EMAIL_REMETENTE, pass: process.env.EMAIL_SENHA },
-            tls: { rejectUnauthorized: false }
-        });
+    host: 'smtp.gmail.com', // Usar o host explícito em vez de 'service'
+    port: 465,
+    secure: true,
+    auth: { user: process.env.EMAIL_REMETENTE, pass: process.env.EMAIL_SENHA },
+    tls: { rejectUnauthorized: false }
+});
 
         await transporter.sendMail({
             from: process.env.EMAIL_REMETENTE,
