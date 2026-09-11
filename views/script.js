@@ -172,8 +172,41 @@ function addOrUpdateMarker(eq) {
     let mk = state.markers.get(eq.id);
     const r = evaluateEquipment(eq);
     if (!mk) {
-        mk = L.circleMarker(eq.coords, markerStyle(r.status)).addTo(map).bindPopup(buildPopupHTML(eq));
-        mk.on('click', () => mk.openPopup());
+        // 1. Cria o marcador e vincula o Popup (card)
+        mk = L.circleMarker(eq.coords, markerStyle(r.status))
+            .addTo(map)
+            .bindPopup(buildPopupHTML(eq));
+
+        // --- 🟢 INÍCIO DA MELHORIA TÁTICA COMPLETA ---
+
+        // 2. Comportamento: Passar o mouse (Hover) -> Abre o Card
+        mk.on('mouseover', function (e) {
+            // Verifica se o popup já não está aberto (evita piscar)
+            if (!this.isPopupOpen()) {
+                this.openPopup();
+            }
+        });
+
+        // 3. Comportamento: Tirar o mouse -> Fecha o Card
+        // NOTA: Usamos um pequeno delay para dar tempo do usuário mover o mouse
+        // para dentro do popup se ele quiser clicar nos botões (Detalhes, etc).
+        mk.on('mouseout', function (e) {
+            const self = this;
+            // Dá 300ms (0.3s) de tolerância antes de fechar
+            setTimeout(function() {
+                // Se o mouse não estiver sobre o popup aberto, fecha.
+                // O Leaflet gerencia isso bem com o .closePopup()
+                self.closePopup();
+            }, 300);
+        });
+
+        // 4. Mantém o comportamento de clique (para travar o popup aberto se quiser)
+        mk.on('click', function (e) {
+            this.openPopup();
+        });
+
+        // --- 🔴 FIM DA MELHORIA TÁTICA ---
+
         state.markers.set(eq.id, mk);
     } else {
         mk.setStyle(markerStyle(r.status));
