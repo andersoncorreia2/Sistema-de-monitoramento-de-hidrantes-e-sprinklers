@@ -204,11 +204,17 @@ app.post('/recuperar-senha', async (req, res) => {
         );
 
         const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com', // Usar o host explícito em vez de 'service'
+    host: 'smtp.gmail.com',
     port: 465,
     secure: true,
-    auth: { user: process.env.EMAIL_REMETENTE, pass: process.env.EMAIL_SENHA },
-    tls: { rejectUnauthorized: false }
+    auth: {
+        user: process.env.EMAIL_REMETENTE,
+        pass: process.env.EMAIL_SENHA
+    },
+    tls: {
+        rejectUnauthorized: false
+    },
+    family: 4 // <- TRAVA DE SEGURANÇA: Força o uso exclusivo de IPv4
 });
 
         await transporter.sendMail({

@@ -17,7 +17,8 @@ const transporter = nodemailer.createTransport({
     },
     tls: {
         rejectUnauthorized: false
-    }
+    },
+    family: 4 // <- TRAVA DE SEGURANÇA: Força o uso exclusivo de IPv4
 });
 
 router.post('/enviar-alerta', async (req, res) => {
