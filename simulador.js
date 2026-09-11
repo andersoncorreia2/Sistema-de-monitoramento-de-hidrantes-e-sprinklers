@@ -39,7 +39,7 @@ async function simularSensoresIoT() {
             console.log(`📡 [Sensor IoT] Telemetria injetada na nuvem para: ${eq.id_equipamento} | Pressão: ${valores[1]} bar`);
 
         } catch (erro) {
-            console.error("⚠️ Erro no simulador IoT:", erro.message);
+            console.error("⚠️ Erro no simulador IoT:", erro);
         }
     }, 5000);
 }
