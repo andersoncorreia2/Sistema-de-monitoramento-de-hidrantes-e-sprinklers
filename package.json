@@ -26,6 +26,7 @@
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^9.0.6",
     "pg": "^8.23.0",
+    "resend": "^6.28.0",
     "twilio": "^6.1.0"
   }
 }

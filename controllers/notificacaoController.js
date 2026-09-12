@@ -1,25 +1,14 @@
 const express = require('express');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend'); // 👈 MUDANÇA 1: Importamos a API HTTPS no lugar do nodemailer
 const twilio = require('twilio'); 
 
-// 👉 ADICIONE ESTA LINHA PARA FORÇAR O IPv4 TAMBÉM AQUI
+// 👉 MANTIDO: A sua trava de rede original
 require('dns').setDefaultResultOrder('ipv4first'); 
 
 const router = express.Router();
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587, // 👈 MUDANÇA 1: Trocar 465 por 587
-    secure: false, // 👈 MUDANÇA 2: Mudar para false (o STARTTLS fará a segurança)
-    auth: {
-        user: process.env.EMAIL_REMETENTE,
-        pass: process.env.EMAIL_SENHA
-    },
-    tls: {
-        rejectUnauthorized: false
-    },
-    family: 4 
-});
+// 👈 MUDANÇA 2: Inicializamos a ferramenta de HTTPS com a sua chave secreta
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 router.post('/enviar-alerta', async (req, res) => {
     const { id_equipamento, tipo, local, falhas, responsavel } = req.body;
@@ -32,15 +21,20 @@ router.post('/enviar-alerta', async (req, res) => {
     const mensagemTexto = `⚠️ ALERTA URGENTE - PREVENÇÃO ⚠️\nFoi detectada uma falha crítica no ${tipo} (${id_equipamento}) localizado em: ${local}.\n\nProblemas identificados: ${falhas}\n\nSolicitamos a manutenção imediata para garantir a operacionalidade do sistema.`;
 
     try {
-        // Disparo primário por E-mail
-        await transporter.sendMail({
-            from: process.env.EMAIL_REMETENTE, 
+        // 👈 MUDANÇA 3: O disparo de e-mail agora usa a porta 443 (HTTPS)
+        const { error } = await resend.emails.send({
+            from: 'Sistema Integrado de Monitoramento de Incêndio <onboarding@resend.dev>', // No plano gratuito, este precisa ser o remetente
             to: responsavel.email, 
             subject: `URGENTE: Manutenção Requerida - ${tipo} ${id_equipamento}`,
-            text: mensagemTexto
+            html: `<p>${mensagemTexto.replace(/\n/g, '<br>')}</p>`
         });
 
-        // Disparo secundário por WhatsApp (Com isolamento de falhas)
+        if (error) {
+            console.error('Erro na API HTTPS da Resend:', error);
+            return res.status(500).json({ erro: 'A API recusou o envio do e-mail.' });
+        }
+
+        // 👉 MANTIDO INTACTO: Disparo secundário por WhatsApp (Com isolamento de falhas)
         if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && responsavel.tel) {
             try {
                 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -58,8 +52,8 @@ router.post('/enviar-alerta', async (req, res) => {
 
         return res.status(200).json({ mensagem: 'Notificação enviada com sucesso!' });
     } catch (erro) {
-        console.error('Erro no Nodemailer:', erro);
-        return res.status(500).json({ erro: 'Falha ao enviar notificações. Verifique as credenciais do Gmail.' });
+        console.error('Erro geral no sistema de mensageria:', erro);
+        return res.status(500).json({ erro: 'Falha ao enviar notificações via HTTPS.' });
     }
 });
 
