@@ -181,13 +181,15 @@ app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
 });
 
 // ==========================================
-// RECUPERAÇÃO DE SENHA (MFA) - ATUALIZADO PARA NUVEM
+// RECUPERAÇÃO DE SENHA (MFA) - ATUALIZADO PARA NUVEM (HTTPS)
 // ==========================================
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
 
     try {
-        // Busca direta compatível com a coluna 'usuario' da nuvem
         const resultado = await db.query('SELECT email FROM usuarios WHERE usuario = $1', [usuario]);
         
         if (resultado.rows.length === 0 || !resultado.rows[0].email) {
@@ -197,32 +199,24 @@ app.post('/recuperar-senha', async (req, res) => {
         const emailDestino = resultado.rows[0].email;
         const codigo = Math.floor(100000 + Math.random() * 900000).toString();
         
-        // Grava o código no banco
+        // Grava o código no banco com expiração de 15 minutos
         await db.query(
             `UPDATE usuarios SET codigo_recuperacao = $1, expiracao_codigo = NOW() + INTERVAL '15 minutes' WHERE usuario = $2`,
             [codigo, usuario]
         );
 
-        const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587, // 👈 MUDANÇA 1: Trocar 465 por 587
-    secure: false, // 👈 MUDANÇA 2: Mudar para false (o STARTTLS fará a segurança)
-    auth: {
-        user: process.env.EMAIL_REMETENTE,
-        pass: process.env.EMAIL_SENHA
-    },
-    tls: {
-        rejectUnauthorized: false
-    },
-    family: 4 
-});
-
-        await transporter.sendMail({
-            from: process.env.EMAIL_REMETENTE,
-            to: emailDestino,
+        // Disparo HTTPS via Resend (Fura o bloqueio do Render)
+        const { error } = await resend.emails.send({
+            from: 'Sistema Integrado de Monitoramento de Incêndio <onboarding@resend.dev>',
+            to: emailDestino, 
             subject: 'CBMPE - Código de Recuperação de Acesso',
-            text: `Seu código de verificação é: ${codigo}\nEle é válido por 15 minutos.\nSe você não solicitou isso, ignore este e-mail.`
+            html: `<p>Seu código de verificação é: <strong>${codigo}</strong><br>Ele é válido por 15 minutos.<br>Se você não solicitou isso, ignore este e-mail.</p>`
         });
+
+        if (error) {
+            console.error('Erro na API da Resend:', error);
+            return res.status(500).json({ erro: 'A API de e-mail recusou o envio.' });
+        }
 
         return res.status(200).json({ mensagem: 'Código enviado com sucesso!' });
 
@@ -255,31 +249,6 @@ app.post('/trocar-senha-codigo', async (req, res) => {
             'UPDATE usuarios SET senha_hash = $1, codigo_recuperacao = NULL, expiracao_codigo = NULL WHERE usuario = $2',
             [String(novaSenha), usuario]
         );
-
-        return res.status(200).json({ mensagem: 'Senha alterada com sucesso! Você já pode entrar.' });
-
-    } catch (erro) {
-        console.error('Erro ao trocar senha:', erro);
-        return res.status(500).json({ erro: 'Falha interna ao validar o código.' });
-    }
-});
-
-// Rota para Validar o Código MFA e Trocar a Senha (Usando Model)
-app.post('/trocar-senha-codigo', async (req, res) => {
-    const { usuario, codigo, novaSenha } = req.body;
-
-    if (!usuario || !codigo || !novaSenha) {
-        return res.status(400).json({ erro: 'Dados incompletos para troca de senha.' });
-    }
-
-    try {
-        const codigoValido = await Usuario.validarCodigoMFA(usuario, codigo);
-
-        if (!codigoValido) {
-            return res.status(400).json({ erro: 'Código inválido ou expirado. Solicite um novo.' });
-        }
-
-        await Usuario.atualizarSenhaELimparMFA(usuario, novaSenha);
 
         return res.status(200).json({ mensagem: 'Senha alterada com sucesso! Você já pode entrar.' });
 
