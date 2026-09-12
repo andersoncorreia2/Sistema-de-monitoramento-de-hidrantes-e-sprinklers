@@ -6,7 +6,7 @@ async function simularSensoresIoT() {
     // O robô vai acordar a cada 5 segundos para enviar dados
     setInterval(async () => {
         try {
-            // CORREÇÃO 1: A coluna agora chama "id_equipamento"
+            // Busca os equipamentos cadastrados usando a coluna correta
             const res = await db.query('SELECT id_equipamento, tipo FROM equipamentos');
             const equipamentos = res.rows;
 
@@ -17,7 +17,7 @@ async function simularSensoresIoT() {
             let query = '';
             let valores = [];
 
-            // CORREÇÃO 2: Inserir nas novas tabelas relacionais de telemetria da nuvem
+            // Insere nas tabelas relacionais de telemetria da nuvem
             if (eq.tipo === 'Hidrante') {
                 const pressao = (Math.random() * 4 + 3).toFixed(1); 
                 const vazao = Math.floor(Math.random() * 500 + 400);
@@ -27,7 +27,6 @@ async function simularSensoresIoT() {
                 valores = [eq.id_equipamento, pressao, vazao, agua];
             } else {
                 const pressao = (Math.random() * 1.5 + 0.5).toFixed(1); 
-                // Traduzindo o status de texto para os booleanos (True/False) da nuvem
                 const obstruido = Math.random() < 0.1 ? true : false; 
                 const quebrado = Math.random() < 0.05 ? true : false;
                 
