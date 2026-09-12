@@ -30,22 +30,25 @@ router.post('/enviar-alerta', async (req, res) => {
             return res.status(500).json({ erro: 'A API recusou o envio do e-mail.' });
         }
 
-        // 2. Disparo por WhatsApp via Twilio (Com tratamento de erro detalhado)
+        // 2. Disparo por WhatsApp via Twilio (Com suporte a ContentSid)
         if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && responsavel.tel) {
             try {
                 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
                 
-                // Limpa o número para garantir que tenha apenas dígitos
                 const numTel = responsavel.tel.replace(/\D/g, ''); 
-                
-                // Garante o formato DDI +55 caso não venha no banco
                 const destinoWhatsApp = numTel.startsWith('55') ? `whatsapp:+${numTel}` : `whatsapp:+55${numTel}`;
 
                 console.log(`📲 Tentando enviar WhatsApp para: ${destinoWhatsApp}`);
 
+                // Envio utilizando Content API do Sandbox da Twilio para evitar o erro de ContentSid
                 await twilioClient.messages.create({
-                    body: mensagemTexto,
-                    from: 'whatsapp:+14155238886', // Número padrão do Sandbox da Twilio
+                    contentSid: 'HXb3238a1670d378089bc9f539f4088a53', // Template padrão de teste da Twilio Sandbox
+                    contentVariables: JSON.stringify({
+                        1: tipo,
+                        2: id_equipamento,
+                        3: local
+                    }),
+                    from: 'whatsapp:+14155238886',
                     to: destinoWhatsApp 
                 });
                 
