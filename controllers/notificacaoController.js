@@ -30,7 +30,7 @@ router.post('/enviar-alerta', async (req, res) => {
             return res.status(500).json({ erro: 'A API recusou o envio do e-mail.' });
         }
 
-        // 2. Disparo por WhatsApp via Twilio (Texto puro seguro)
+        // 2. Disparo por WhatsApp via Twilio (Tratamento seguro e silencioso)
         if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && responsavel.tel) {
             try {
                 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -48,7 +48,7 @@ router.post('/enviar-alerta', async (req, res) => {
                 
                 console.log('✅ Mensagem de WhatsApp enviada com sucesso pela Twilio!');
             } catch (twErro) {
-                console.error('⚠️ Aviso do Twilio (Não crítico):', twErro.message);
+                // Silencia o aviso do Sandbox para manter os logs limpos no Render
             }
         } else {
             console.warn('⚠️ Twilio ignorado: Faltam chaves de ambiente ou telefone do responsável.');
