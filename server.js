@@ -22,8 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 // Servindo a interface gráfica estática da pasta views
 app.use(express.static('views'));
 const jwt = require('jsonwebtoken');
-const CHAVE_SECRETA = 'cbmpe_chave_super_secreta_preve_2026';
-
+const CHAVE_SECRETA = process.env.CHAVE_SECRETA;
 // Middleware de Cibersegurança
 function protegerRota(req, res, next) {
     // Busca o token no cabeçalho da requisição enviada pelo painel ou sensor
@@ -209,7 +208,7 @@ app.post('/recuperar-senha', async (req, res) => {
         const { error } = await resend.emails.send({
             from: 'Sistema Integrado de Monitoramento de Incêndio <onboarding@resend.dev>',
             to: emailDestino, 
-            subject: 'CBMPE - Código de Recuperação de Acesso',
+            subject: 'SIMI - Código de Recuperação de Acesso',
             html: `<p>Seu código de verificação é: <strong>${codigo}</strong><br>Ele é válido por 15 minutos.<br>Se você não solicitou isso, ignore este e-mail.</p>`
         });
 
