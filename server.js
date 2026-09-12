@@ -66,7 +66,7 @@ app.post('/login', async (req, res) => {
 
         const tokenOficial = jwt.sign(
             { 
-                corporacao: 'CBMPE', 
+                corporacao: 'SIMI', 
                 login: usuarioLogado.login,
                 permissao: usuarioLogado.cargo,
                 posto: usuarioLogado.posto_grad,
@@ -116,7 +116,7 @@ app.post('/validar-turno', async (req, res) => {
         // 🟢 NOVO: Gerando o Token JWT Tático da Guarnição
         const tokenTatico = jwt.sign(
             { 
-                corporacao: 'CBMPE', 
+                corporacao: 'SIMI', 
                 matricula: matricula,
                 permissao: 'Tatico',
                 regiao: infoTurno.regiao_simi
