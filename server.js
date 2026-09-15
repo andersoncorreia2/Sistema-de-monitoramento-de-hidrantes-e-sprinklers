@@ -3,7 +3,6 @@ const db = require('./config/db');
 const Usuario = require('./models/Usuario');
 const express = require('express');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 
 // 👉 ADICIONE ESTA LINHA PARA FORÇAR O IPv4
 require('dns').setDefaultResultOrder('ipv4first');
@@ -180,19 +179,32 @@ app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
 });
 
 // ==========================================
-// RECUPERAÇÃO DE SENHA (MFA) - VIA GMAIL SMTP
+// RECUPERAÇÃO DE SENHA (MFA) - VIA BREVO (HTTPS API)
 // ==========================================
-// 🟢 Envia usando a própria conta Gmail (nodemailer).
-// Requer no .env: GMAIL_USER (o e-mail Gmail remetente) e
-// GMAIL_APP_PASSWORD (senha de app gerada em myaccount.google.com/apppasswords,
-// exige verificação em 2 etapas ativada na conta Google).
-const transportadorEmail = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD
+// 🟢 Envia via API HTTPS do Brevo (não usa SMTP, então não é bloqueado pelo
+// Render). Requer no .env: BREVO_API_KEY e BREVO_SENDER_EMAIL (o e-mail
+// verificado como remetente no painel do Brevo).
+async function enviarEmailBrevo({ to, subject, html }) {
+    const resposta = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'api-key': process.env.BREVO_API_KEY
+        },
+        body: JSON.stringify({
+            sender: { name: 'Sistema Integrado de Monitoramento de Incêndio', email: process.env.BREVO_SENDER_EMAIL },
+            to: [{ email: to }],
+            subject,
+            htmlContent: html
+        })
+    });
+
+    if (!resposta.ok) {
+        const corpoErro = await resposta.text();
+        throw new Error(`Brevo recusou o envio (status ${resposta.status}): ${corpoErro}`);
     }
-});
+}
 
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
@@ -213,16 +225,15 @@ app.post('/recuperar-senha', async (req, res) => {
             [codigo, usuario]
         );
 
-        // Disparo via Gmail SMTP (chega em qualquer destinatário, não só no dono da conta)
+        // Disparo via Brevo (HTTPS, chega em qualquer destinatário)
         try {
-            await transportadorEmail.sendMail({
-                from: `Sistema Integrado de Monitoramento de Incêndio <${process.env.GMAIL_USER}>`,
+            await enviarEmailBrevo({
                 to: emailDestino,
                 subject: 'SIMI - Código de Recuperação de Acesso',
                 html: `<p>Seu código de verificação é: <strong>${codigo}</strong><br>Ele é válido por 15 minutos.<br>Se você não solicitou isso, ignore este e-mail.</p>`
             });
         } catch (erroEnvio) {
-            console.error('Erro no envio via Gmail SMTP:', erroEnvio);
+            console.error('Erro no envio via Brevo:', erroEnvio);
             return res.status(500).json({ erro: 'A API de e-mail recusou o envio.' });
         }
 
