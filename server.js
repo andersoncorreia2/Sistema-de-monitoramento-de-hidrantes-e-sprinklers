@@ -180,10 +180,19 @@ app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
 });
 
 // ==========================================
-// RECUPERAÇÃO DE SENHA (MFA) - ATUALIZADO PARA NUVEM (HTTPS)
+// RECUPERAÇÃO DE SENHA (MFA) - VIA GMAIL SMTP
 // ==========================================
-const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY);
+// 🟢 Envia usando a própria conta Gmail (nodemailer).
+// Requer no .env: GMAIL_USER (o e-mail Gmail remetente) e
+// GMAIL_APP_PASSWORD (senha de app gerada em myaccount.google.com/apppasswords,
+// exige verificação em 2 etapas ativada na conta Google).
+const transportadorEmail = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
+    }
+});
 
 app.post('/recuperar-senha', async (req, res) => {
     const { usuario } = req.body;
@@ -204,16 +213,16 @@ app.post('/recuperar-senha', async (req, res) => {
             [codigo, usuario]
         );
 
-        // Disparo HTTPS via Resend (Fura o bloqueio do Render)
-        const { error } = await resend.emails.send({
-            from: 'Sistema Integrado de Monitoramento de Incêndio <onboarding@resend.dev>',
-            to: emailDestino, 
-            subject: 'SIMI - Código de Recuperação de Acesso',
-            html: `<p>Seu código de verificação é: <strong>${codigo}</strong><br>Ele é válido por 15 minutos.<br>Se você não solicitou isso, ignore este e-mail.</p>`
-        });
-
-        if (error) {
-            console.error('Erro na API da Resend:', error);
+        // Disparo via Gmail SMTP (chega em qualquer destinatário, não só no dono da conta)
+        try {
+            await transportadorEmail.sendMail({
+                from: `Sistema Integrado de Monitoramento de Incêndio <${process.env.GMAIL_USER}>`,
+                to: emailDestino,
+                subject: 'SIMI - Código de Recuperação de Acesso',
+                html: `<p>Seu código de verificação é: <strong>${codigo}</strong><br>Ele é válido por 15 minutos.<br>Se você não solicitou isso, ignore este e-mail.</p>`
+            });
+        } catch (erroEnvio) {
+            console.error('Erro no envio via Gmail SMTP:', erroEnvio);
             return res.status(500).json({ erro: 'A API de e-mail recusou o envio.' });
         }
 
@@ -303,19 +312,19 @@ app.get('/listar-usuarios', protegerRota, async (req, res) => {
 // 3. EDITAR/ATUALIZAR USUÁRIO EXISTENTE
 app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
-    const { login, email, telefone, cargo, posto_grad, matricula, senha } = req.body;
+    const { login, email, telefone, cargo, posto_grad, matricula, regiao, senha } = req.body;
 
     try {
         // Correção das colunas para os nomes oficiais da nuvem: usuario, funcao, senha_hash
         if (senha && senha.trim() !== '') {
             await db.query(
-                'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6, senha_hash=$7 WHERE id=$8',
-                [login, email, telefone, cargo, posto_grad, matricula, String(senha), id]
+                'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6, regiao=$7, senha_hash=$8 WHERE id=$9',
+                [login, email, telefone, cargo, posto_grad, matricula, regiao, String(senha), id]
             );
         } else {
             await db.query(
-                'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6 WHERE id=$7',
-                [login, email, telefone, cargo, posto_grad, matricula, id]
+                'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6, regiao=$7 WHERE id=$8',
+                [login, email, telefone, cargo, posto_grad, matricula, regiao, id]
             );
         }
         return res.status(200).json({ mensagem: 'Usuário atualizado com sucesso!' });

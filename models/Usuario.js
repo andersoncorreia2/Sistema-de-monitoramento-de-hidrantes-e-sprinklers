@@ -1,3 +1,8 @@
+// ==============================================================================
+// ARQUIVO: models/Usuario.js
+// RITO DE BLINDAGEM OPERACIONAL: Integração da "Região de Atuação" nas Camadas SIMI
+// ==============================================================================
+
 const db = require('../config/db');
 
 const Usuario = {
@@ -11,22 +16,36 @@ const Usuario = {
 
     // 2. Lista todos os militares
     listarTodos: async () => {
-        // Correção: login -> usuario, cargo -> funcao
-        const query = 'SELECT id, usuario as login, email, telefone, funcao as cargo, posto_grad, matricula FROM usuarios ORDER BY id ASC';
+        // [CÓDIGO ATUALIZADO PELO RITO DE BLINDAGEM OPERACIONAL]
+        // Incluindo a coluna 'regiao' (alias regiao_atuacao) para visualização na tabela central.
+        // Correção das colunas oficiais: login->usuario, cargo->funcao
+        const query = `
+            SELECT id, usuario as login, email, telefone, funcao as cargo, posto_grad, matricula, 
+                   regiao as regiao_atuacao 
+            FROM usuarios ORDER BY id ASC
+        `;
         const { rows } = await db.query(query);
         return rows;
     },
 
     // 3. Cadastra um novo militar
     cadastrar: async (dados) => {
-        // Correção: login->usuario, senha_segura->senha_hash, cargo->funcao
+        // [CÓDIGO ATUALIZADO PELO RITO DE BLINDAGEM OPERACIONAL]
+        // Atualizando a query de INSERT e o array de valores para incluir a 'regiao' ($8).
+        // Correção das colunas oficiais: login->usuario, senha->senha_hash, cargo->funcao
         const query = `
-            INSERT INTO usuarios (usuario, senha_hash, email, telefone, funcao, posto_grad, matricula) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO usuarios (usuario, senha_hash, email, telefone, funcao, posto_grad, matricula, regiao) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `;
         const valores = [
-            dados.login, String(dados.senha), dados.email, 
-            dados.telefone, dados.cargo, dados.posto_grad, dados.matricula
+            dados.login, 
+            String(dados.senha), 
+            dados.email, 
+            dados.telefone, 
+            dados.cargo, 
+            dados.posto_grad, 
+            dados.matricula,
+            dados.regiao // <-- NOVO PARÂMETRO REGIONAL
         ];
         await db.query(query, valores);
     },

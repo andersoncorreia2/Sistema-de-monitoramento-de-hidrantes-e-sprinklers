@@ -1,11 +1,20 @@
 const express = require('express');
-const { Resend } = require('resend'); 
+const nodemailer = require('nodemailer');
 const twilio = require('twilio'); 
 
 require('dns').setDefaultResultOrder('ipv4first'); 
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+
+// 🟢 Envia via Gmail SMTP (mesma conta usada na recuperação de senha).
+// Requer no .env: GMAIL_USER e GMAIL_APP_PASSWORD.
+const transportadorEmail = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
+    }
+});
 
 router.post('/enviar-alerta', async (req, res) => {
     const { id_equipamento, tipo, local, falhas, responsavel } = req.body;
@@ -17,40 +26,73 @@ router.post('/enviar-alerta', async (req, res) => {
     const mensagemTexto = `⚠️ ALERTA URGENTE - PREVENÇÃO ⚠️\nFoi detectada uma falha crítica no ${tipo} (${id_equipamento}) localizado em: ${local}.\n\nProblemas identificados: ${falhas}\n\nSolicitamos a manutenção imediata para garantir a operacionalidade do sistema.`;
 
     try {
-        // 1. Disparo de e-mail via Resend
-        const { error } = await resend.emails.send({
-            from: 'Sistema Integrado de Monitoramento de Incêndio <onboarding@resend.dev>',
-            to: responsavel.email, 
-            subject: `URGENTE: Manutenção Requerida - ${tipo} ${id_equipamento}`,
-            html: `<p>${mensagemTexto.replace(/\n/g, '<br>')}</p>`
-        });
-
-        if (error) {
-            console.error('Erro na API HTTPS da Resend:', error);
+        // 1. Disparo de e-mail via Gmail SMTP
+        try {
+            await transportadorEmail.sendMail({
+                from: `Sistema Integrado de Monitoramento de Incêndio <${process.env.GMAIL_USER}>`,
+                to: responsavel.email,
+                subject: `URGENTE: Manutenção Requerida - ${tipo} ${id_equipamento}`,
+                html: `<p>${mensagemTexto.replace(/\n/g, '<br>')}</p>`
+            });
+        } catch (erroEnvio) {
+            console.error('Erro no envio via Gmail SMTP:', erroEnvio);
             return res.status(500).json({ erro: 'A API recusou o envio do e-mail.' });
         }
 
-        // 2. Disparo por WhatsApp via Twilio (Tratamento seguro e silencioso)
-        if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && responsavel.tel) {
-            try {
-                const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                
-                const numTel = responsavel.tel.replace(/\D/g, ''); 
-                const destinoWhatsApp = numTel.startsWith('55') ? `whatsapp:+${numTel}` : `whatsapp:+55${numTel}`;
+        // Disparo por WhatsApp via Twilio
+        // 🟢 Prioriza Content Template aprovado (produção). Se não houver template
+        // configurado, cai para mensagem de texto livre (só funciona no Sandbox
+        // dentro da janela de 72h de opt-in do destinatário).
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && responsavel.tel) {
+    try {
+        const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-                console.log(`📲 Tentando enviar WhatsApp para: ${destinoWhatsApp}`);
+        const numTel = responsavel.tel.replace(/\D/g, ''); 
+        const destinoWhatsApp = numTel.startsWith('55') ? `whatsapp:+${numTel}` : `whatsapp:+55${numTel}`;
 
-                await twilioClient.messages.create({
-                    body: mensagemTexto,
-                    from: 'whatsapp:+14155238886',
-                    to: destinoWhatsApp 
-                });
-                
-                console.log('✅ Mensagem de WhatsApp enviada com sucesso pela Twilio!');
-            } catch (twErro) {
-                // Silencia o aviso do Sandbox para manter os logs limpos no Render
-            }
+        // Número remetente: em produção use seu número de WhatsApp Business
+        // aprovado (TWILIO_WHATSAPP_FROM). Sem isso, cai no Sandbox de testes.
+        const remetenteWhatsApp = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
+
+        console.log(`📲 Tentando enviar WhatsApp para: ${destinoWhatsApp}`);
+
+        const payloadBase = {
+            from: remetenteWhatsApp,
+            to: destinoWhatsApp
+        };
+
+        if (process.env.TWILIO_TEMPLATE_ALERTA_SID) {
+            // 🟢 Envio via Content Template aprovado (funciona fora da janela de
+            // 24h/72h e não exige opt-in prévio do destinatário).
+            // As variáveis abaixo devem corresponder, na mesma ordem, às
+            // variáveis {{1}}, {{2}}, {{3}}, {{4}} definidas no template
+            // criado no Twilio Content Template Builder.
+            await twilioClient.messages.create({
+                ...payloadBase,
+                contentSid: process.env.TWILIO_TEMPLATE_ALERTA_SID,
+                contentVariables: JSON.stringify({
+                    1: String(tipo),
+                    2: String(id_equipamento),
+                    3: String(local),
+                    4: String(falhas)
+                })
+            });
+
+            console.log('✅ Mensagem de WhatsApp (template) enviada com sucesso pela Twilio!');
         } else {
+            // Fallback: texto livre — só entrega se o destinatário tiver dado
+            // opt-in no Sandbox nas últimas 72h.
+            await twilioClient.messages.create({
+                ...payloadBase,
+                body: mensagemTexto
+            });
+
+            console.log('✅ Mensagem de WhatsApp (texto livre) enviada com sucesso pela Twilio!');
+        }
+    } catch (twErro) {
+        console.error('❌ Erro no Twilio:', twErro.code, twErro.message);
+    }
+} else {
             console.warn('⚠️ Twilio ignorado: Faltam chaves de ambiente ou telefone do responsável.');
         }
 

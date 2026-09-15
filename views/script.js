@@ -693,8 +693,12 @@ document.getElementById('btn-novo-usuario')?.addEventListener('click', () => {
 document.getElementById('btn-voltar-tabela')?.addEventListener('click', mostrarTabelaUsuarios);
 
 function mostrarTabelaUsuarios() {
-    viewForm.style.display = 'none';
-    viewTabela.style.display = 'block';
+    // Rito de Limpeza Completa: Oculta TODAS as outras visões possíveis
+    viewForm.style.display = 'none';     // Oculta o formulário de cadastro de militar
+    viewDespacho.style.display = 'none'; // <-- ADICIONE ESTA LINHA: Oculta a visão de despacho/código
+
+    // Ativa apenas a visão correta
+    viewTabela.style.display = 'block'; // Mostra a tabela de efetivo
     document.getElementById('titulo-modal-usuarios').textContent = "Gestão de Efetivo";
     carregarTabelaUsuarios();
 }
@@ -728,7 +732,7 @@ async function carregarTabelaUsuarios() {
             }
             if (u.login === usuarioLogado) podeExcluir = false;
 
-            const uData = JSON.stringify({ id: u.id, login: u.login, email: u.email, telefone: u.telefone, posto_grad: u.posto_grad, matricula: u.matricula, cargo: u.cargo });
+            const uData = JSON.stringify({ id: u.id, login: u.login, email: u.email, telefone: u.telefone, posto_grad: u.posto_grad, matricula: u.matricula, regiao_atuacao: u.regiao_atuacao, cargo: u.cargo });
             let btnEditar = podeEditar ? `<button class="btn small" style="background-color: #3b82f6; color: white;" onclick='editarUsuario(${uData})'>✏️ Editar</button>` : `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;">🚫 Editar</button>`;
             let btnExcluir = podeExcluir ? `<button class="btn small danger" onclick="excluirUsuario('${u.id}', '${u.login}')">🗑️ Excluir</button>` : `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;">🚫 Excluir</button>`;
             if (u.login === usuarioLogado) btnExcluir = `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;">🚫 Atual</button>`;
@@ -748,6 +752,7 @@ window.editarUsuario = function(u) {
     document.getElementById('novo-user-tel').value = u.telefone || '';
     document.getElementById('novo-user-posto').value = u.posto_grad || '';
     document.getElementById('novo-user-mat').value = u.matricula || '';
+    document.getElementById('novo-user-regiao').value = u.regiao_atuacao || '';
     document.getElementById('novo-user-cargo').value = u.cargo;
     
     const campoSenha = document.getElementById('novo-user-senha');
@@ -779,6 +784,7 @@ if (formNovoUsuario) {
         const cargo = document.getElementById('novo-user-cargo').value;
         const posto_grad = document.getElementById('novo-user-posto').value;
         const matricula = document.getElementById('novo-user-mat').value.trim();
+        const regiao = document.getElementById('novo-user-regiao').value;
 
         const token = localStorage.getItem('authToken');
         const url = id ? `https://api-simi-core.onrender.com/editar-usuario/${id}` : 'https://api-simi-core.onrender.com/cadastrar-usuario';
@@ -790,7 +796,7 @@ if (formNovoUsuario) {
             const resposta = await fetch(url, {
                 method: method,
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ login, senha, email, telefone, cargo, posto_grad, matricula })
+                body: JSON.stringify({ login, senha, email, telefone, cargo, posto_grad, matricula, regiao })
             });
             const dados = await resposta.json();
             if (resposta.ok) { toast('✅ ' + dados.mensagem); mostrarTabelaUsuarios(); } 
