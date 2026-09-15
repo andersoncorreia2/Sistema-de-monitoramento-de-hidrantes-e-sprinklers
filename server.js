@@ -87,7 +87,8 @@ app.post('/login', async (req, res) => {
 // ROTA: Validação de Código de Turno (AppViatura)
 // ==========================================
 app.post('/validar-turno', async (req, res) => {
-    const { matricula, codigo_digitado } = req.body;
+    const matricula = (req.body.matricula || '').trim();
+    const codigo_digitado = (req.body.codigo_digitado || '').trim();
     
     console.log(`[AppViatura] Tentativa de acesso. Matrícula: ${matricula}, Código: ${codigo_digitado}`);
 
@@ -96,27 +97,58 @@ app.post('/validar-turno', async (req, res) => {
     }
 
     try {
-        const query = `
+        // 1. Valida se o código de turno existe e ainda não expirou
+        const queryCodigo = `
             SELECT regiao_simi, carga_horaria 
             FROM codigos_turno 
             WHERE codigo_acesso = $1 AND data_expiracao > NOW()
         `;
-        
-        const result = await db.query(query, [codigo_digitado]);
+        const resultCodigo = await db.query(queryCodigo, [codigo_digitado]);
 
-        if (result.rows.length === 0) {
+        if (resultCodigo.rows.length === 0) {
             return res.status(401).json({ 
                 erro: 'Acesso negado: Código operacional inválido ou turno encerrado.' 
             });
         }
 
-        const infoTurno = result.rows[0];
+        const infoTurno = resultCodigo.rows[0];
 
-        // 🟢 NOVO: Gerando o Token JWT Tático da Guarnição
+        // 🟢 NOVO: Valida se a matrícula pertence a um militar cadastrado como Chefe de Guarnição
+        const queryMilitar = `
+            SELECT usuario, funcao, regiao, posto_grad 
+            FROM usuarios 
+            WHERE matricula = $1
+        `;
+        const resultMilitar = await db.query(queryMilitar, [matricula]);
+
+        if (resultMilitar.rows.length === 0) {
+            return res.status(401).json({
+                erro: 'Acesso negado: Matrícula não cadastrada no sistema.'
+            });
+        }
+
+        const militar = resultMilitar.rows[0];
+
+        if (militar.funcao !== 'Chefe de Guarnicao') {
+            return res.status(403).json({
+                erro: 'Acesso negado: Esta matrícula não possui permissão de Chefe de Guarnição para o AppViatura.'
+            });
+        }
+
+        // 🟢 NOVO: Valida se a região do militar é a mesma do código de turno informado
+        if (militar.regiao !== infoTurno.regiao_simi) {
+            return res.status(403).json({
+                erro: `Acesso negado: Este código pertence à região ${infoTurno.regiao_simi}, mas sua matrícula está cadastrada na região ${militar.regiao || 'não definida'}.`
+            });
+        }
+
+        // Gerando o Token JWT Tático da Guarnição
         const tokenTatico = jwt.sign(
             { 
                 corporacao: 'SIMI', 
                 matricula: matricula,
+                nomeGuerra: militar.usuario,
+                posto: militar.posto_grad,
                 permissao: 'Tatico',
                 regiao: infoTurno.regiao_simi
             }, 
@@ -128,7 +160,7 @@ app.post('/validar-turno', async (req, res) => {
             sucesso: true,
             mensagem: 'Guarnição autenticada. Serviço assumido.',
             regiao_alocada: infoTurno.regiao_simi,
-            token: tokenTatico // 🟢 NOVO: Enviando o token para o celular
+            token: tokenTatico // Enviando o token para o celular
         });
 
     } catch (erro) {
