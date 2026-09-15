@@ -114,10 +114,17 @@ app.post('/validar-turno', async (req, res) => {
         const infoTurno = resultCodigo.rows[0];
 
         // 🟢 NOVO: Valida se a matrícula pertence a um militar cadastrado como Chefe de Guarnição
+        // Compara só os dígitos (ignora hífen, espaço, ponto etc.), pra o militar não
+        // precisar acertar a formatação exata no teclado do celular.
+        // ORDER BY prioriza uma linha com funcao = 'Chefe de Guarnicao' caso a matrícula
+        // esteja duplicada entre dois cadastros (defensivo; o certo é matrícula ser única).
         const queryMilitar = `
             SELECT usuario, funcao, regiao, posto_grad 
             FROM usuarios 
-            WHERE matricula = $1
+            WHERE regexp_replace(matricula, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g')
+              AND matricula IS NOT NULL AND matricula != ''
+            ORDER BY (funcao = 'Chefe de Guarnicao') DESC
+            LIMIT 1
         `;
         const resultMilitar = await db.query(queryMilitar, [matricula]);
 
@@ -333,6 +340,18 @@ app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
             return res.status(400).json({ erro: 'Este nome de Guerra/Login já está em uso.' });
         }
 
+        // 🟢 NOVO: Impede duas matrículas iguais (evita duplicidade em logins do AppViatura)
+        // Compara só os dígitos, então "950855-4" e "9508554" contam como a mesma matrícula.
+        if (matricula && matricula.trim() !== '') {
+            const matriculaExiste = await db.query(
+                `SELECT id FROM usuarios WHERE regexp_replace(matricula, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND matricula IS NOT NULL AND matricula != ''`,
+                [matricula.trim()]
+            );
+            if (matriculaExiste.rows.length > 0) {
+                return res.status(400).json({ erro: 'Esta matrícula já está cadastrada para outro militar.' });
+            }
+        }
+
         await Usuario.cadastrar(req.body);
         return res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso!' });
     } catch (erro) {
@@ -358,6 +377,18 @@ app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
     const { login, email, telefone, cargo, posto_grad, matricula, regiao, senha } = req.body;
 
     try {
+        // 🟢 NOVO: Impede que a edição deixe a matrícula duplicada com outro militar
+        // Compara só os dígitos, então "950855-4" e "9508554" contam como a mesma matrícula.
+        if (matricula && matricula.trim() !== '') {
+            const matriculaExiste = await db.query(
+                `SELECT id FROM usuarios WHERE regexp_replace(matricula, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND matricula IS NOT NULL AND matricula != '' AND id != $2`,
+                [matricula.trim(), id]
+            );
+            if (matriculaExiste.rows.length > 0) {
+                return res.status(400).json({ erro: 'Esta matrícula já está cadastrada para outro militar.' });
+            }
+        }
+
         // Correção das colunas para os nomes oficiais da nuvem: usuario, funcao, senha_hash
         if (senha && senha.trim() !== '') {
             await db.query(
