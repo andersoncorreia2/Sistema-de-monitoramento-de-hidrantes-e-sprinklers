@@ -22,8 +22,29 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('views'));
 const jwt = require('jsonwebtoken');
 const CHAVE_SECRETA = process.env.CHAVE_SECRETA;
+// ==========================================
+// CONTROLE DE LICENÇA (Gestor Master / Contrato do Estado)
+// ==========================================
+// O Gestor Master é quem vende/mantém o SIMI — não pertence à corporação.
+// Se o contrato expirar ou for suspenso pelo Master, o serviço para de responder
+// pra todo mundo, menos pro próprio Master (que é quem administra essa trava).
+async function licencaEstaAtiva() {
+    try {
+        const resultado = await db.query('SELECT status, data_fim FROM licenca_sistema ORDER BY id DESC LIMIT 1');
+        if (resultado.rows.length === 0) return true; // Nenhuma licença cadastrada ainda: não bloqueia
+        const licenca = resultado.rows[0];
+        if (licenca.status !== 'ativo') return false;
+        if (new Date(licenca.data_fim) < new Date()) return false;
+        return true;
+    } catch (erro) {
+        // Se a tabela ainda não existir ou der erro de infraestrutura, não trava o sistema por isso.
+        console.error('⚠️ Erro ao verificar licença (a tabela licenca_sistema existe?):', erro.message);
+        return true;
+    }
+}
+
 // Middleware de Cibersegurança
-function protegerRota(req, res, next) {
+async function protegerRota(req, res, next) {
     // Busca o token no cabeçalho da requisição enviada pelo painel ou sensor
     const token = req.headers['authorization'];
     
@@ -38,6 +59,14 @@ function protegerRota(req, res, next) {
         // Verifica se o token é válido e foi gerado pela sua API
         const decodificado = jwt.verify(tokenLimpo, CHAVE_SECRETA);
         req.usuario = decodificado; // Salva quem está acessando
+
+        // 🟢 NOVO: bloqueia todo mundo, exceto o Master, se a licença estiver expirada/suspensa
+        if (decodificado.permissao !== 'Master') {
+            const ativa = await licencaEstaAtiva();
+            if (!ativa) {
+                return res.status(403).json({ erro: 'Serviço suspenso: a licença do SIMI está expirada ou inativa. Contate o suporte para renovação.' });
+            }
+        }
         
         next(); // Tudo certo! Permite que a rota seja executada
     } catch (erro) {
@@ -61,6 +90,14 @@ app.post('/login', async (req, res) => {
 
         if (!usuarioLogado) {
             return res.status(401).json({ erro: 'Acesso negado: Credenciais inválidas.' });
+        }
+
+        // 🟢 NOVO: Se não for Master, checa se a licença do SIMI ainda está ativa
+        if (usuarioLogado.cargo !== 'Master') {
+            const ativa = await licencaEstaAtiva();
+            if (!ativa) {
+                return res.status(403).json({ erro: 'Acesso negado: a licença do SIMI está expirada ou suspensa. Contate o suporte para renovação.' });
+            }
         }
 
         const tokenOficial = jwt.sign(
@@ -141,6 +178,12 @@ app.post('/validar-turno', async (req, res) => {
             return res.status(403).json({
                 erro: 'Acesso negado: Esta matrícula não possui permissão de Chefe de Guarnição para o AppViatura.'
             });
+        }
+
+        // 🟢 NOVO: Chefe de Guarnição nunca é Master — checa se a licença do SIMI está ativa
+        const ativa = await licencaEstaAtiva();
+        if (!ativa) {
+            return res.status(403).json({ erro: 'Serviço suspenso: a licença do SIMI está expirada ou inativa. Contate o comando para mais informações.' });
         }
 
         // 🟢 NOVO: Valida se a região do militar é a mesma do código de turno informado
@@ -472,6 +515,45 @@ app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
     } catch (erro) {
         console.error('Erro ao excluir usuário:', erro);
         return res.status(500).json({ erro: 'Falha ao excluir o usuário do banco.' });
+    }
+});
+
+// ==========================================
+// ROTAS DE LICENÇA (Somente Gestor Master pode alterar)
+// ==========================================
+
+// Qualquer usuário autenticado pode ver o status da licença (ex: mostrar aviso no painel)
+app.get('/licenca', protegerRota, async (req, res) => {
+    try {
+        const resultado = await db.query('SELECT estado_nome, data_inicio, data_fim, status, observacao FROM licenca_sistema ORDER BY id DESC LIMIT 1');
+        return res.status(200).json(resultado.rows[0] || null);
+    } catch (erro) {
+        console.error('Erro ao buscar licença:', erro);
+        return res.status(500).json({ erro: 'Erro ao consultar a licença. A tabela licenca_sistema existe?' });
+    }
+});
+
+// Só o Master pode suspender ou renovar a licença (encerrar ou estender o contrato)
+app.put('/licenca', protegerRota, async (req, res) => {
+    if (req.usuario.permissao !== 'Master') {
+        return res.status(403).json({ erro: 'Acesso negado: só o gestor Master pode alterar a licença.' });
+    }
+
+    const { data_fim, status, observacao } = req.body;
+
+    try {
+        await db.query(
+            `UPDATE licenca_sistema 
+             SET data_fim = COALESCE($1, data_fim), 
+                 status = COALESCE($2, status), 
+                 observacao = COALESCE($3, observacao)
+             WHERE id = (SELECT id FROM licenca_sistema ORDER BY id DESC LIMIT 1)`,
+            [data_fim || null, status || null, observacao || null]
+        );
+        return res.status(200).json({ mensagem: 'Licença atualizada com sucesso.' });
+    } catch (erro) {
+        console.error('Erro ao atualizar licença:', erro);
+        return res.status(500).json({ erro: 'Erro ao atualizar a licença. A tabela licenca_sistema existe?' });
     }
 });
 
