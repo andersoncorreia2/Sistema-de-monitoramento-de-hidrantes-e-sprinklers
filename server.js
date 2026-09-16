@@ -69,7 +69,8 @@ app.post('/login', async (req, res) => {
                 login: usuarioLogado.login,
                 permissao: usuarioLogado.cargo,
                 posto: usuarioLogado.posto_grad,
-                matricula: usuarioLogado.matricula
+                matricula: usuarioLogado.matricula,
+                regiao: usuarioLogado.regiao
             }, 
             CHAVE_SECRETA, 
             { expiresIn: '8h' }
@@ -180,7 +181,11 @@ app.post('/validar-turno', async (req, res) => {
 // ROTA: Gerar Código de Turno (Painel Central SIMI)
 // ==========================================
 app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
-    const { regiao_simi, carga_horaria } = req.body;
+    const { carga_horaria } = req.body;
+    const ehMaster = req.usuario.permissao === 'Master';
+    // 🟢 NOVO: quem não é Master só pode gerar código pra própria região,
+    // não importa o que o formulário tenha enviado.
+    const regiao_simi = ehMaster ? req.body.regiao_simi : req.usuario.regiao;
 
     if (!regiao_simi || !carga_horaria) {
         return res.status(400).json({ erro: 'Região e carga horária são obrigatórias.' });
@@ -329,9 +334,15 @@ app.use('/notificar', protegerRota, notificacaoController);
 // 1. CADASTRAR NOVO USUÁRIO
 app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
     const { login, senha, email, telefone, cargo, posto_grad, matricula } = req.body;
+    const ehMaster = req.usuario.permissao === 'Master';
 
     if (!login || !senha || !cargo) {
         return res.status(400).json({ erro: 'Login, senha e cargo são obrigatórios.' });
+    }
+
+    // 🟢 NOVO: Só um Master pode criar outro usuário Master
+    if (cargo === 'Master' && !ehMaster) {
+        return res.status(403).json({ erro: 'Acesso negado: só um gestor Master pode criar outro Master.' });
     }
 
     try {
@@ -352,7 +363,14 @@ app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
             }
         }
 
-        await Usuario.cadastrar(req.body);
+        // 🟢 NOVO: Isolamento por região. Quem não é Master só pode cadastrar
+        // militar na própria região, não importa o que o formulário tenha enviado.
+        const dadosParaCadastro = { ...req.body };
+        if (!ehMaster) {
+            dadosParaCadastro.regiao = req.usuario.regiao;
+        }
+
+        await Usuario.cadastrar(dadosParaCadastro);
         return res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso!' });
     } catch (erro) {
         console.error('Erro ao cadastrar usuário:', erro);
@@ -363,7 +381,10 @@ app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
 // 2. LISTAR TODOS OS USUÁRIOS
 app.get('/listar-usuarios', protegerRota, async (req, res) => {
     try {
-        const usuarios = await Usuario.listarTodos();
+        // 🟢 NOVO: Isolamento por região. Master vê tudo; qualquer outro cargo
+        // só vê militares da própria região (ex: Comando do Agreste não vê o Sertão).
+        const ehMaster = req.usuario.permissao === 'Master';
+        const usuarios = await Usuario.listarTodos(ehMaster ? null : req.usuario.regiao);
         return res.status(200).json(usuarios);
     } catch (erro) {
         console.error('Erro ao listar usuários:', erro);
@@ -374,9 +395,29 @@ app.get('/listar-usuarios', protegerRota, async (req, res) => {
 // 3. EDITAR/ATUALIZAR USUÁRIO EXISTENTE
 app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
-    const { login, email, telefone, cargo, posto_grad, matricula, regiao, senha } = req.body;
+    const { login, email, telefone, cargo, posto_grad, matricula, senha } = req.body;
+    let { regiao } = req.body;
+    const ehMaster = req.usuario.permissao === 'Master';
+
+    // 🟢 NOVO: Só um Master pode promover alguém a Master
+    if (cargo === 'Master' && !ehMaster) {
+        return res.status(403).json({ erro: 'Acesso negado: só um gestor Master pode conceder o cargo Master.' });
+    }
 
     try {
+        // 🟢 NOVO: Isolamento por região. Quem não é Master só pode editar
+        // militar que já é da própria região, e não pode mudar a região dele.
+        if (!ehMaster) {
+            const alvoResult = await db.query('SELECT regiao FROM usuarios WHERE id = $1', [id]);
+            if (alvoResult.rows.length === 0) {
+                return res.status(404).json({ erro: 'Militar não encontrado.' });
+            }
+            if (alvoResult.rows[0].regiao !== req.usuario.regiao) {
+                return res.status(403).json({ erro: 'Acesso negado: este militar não pertence à sua região.' });
+            }
+            regiao = req.usuario.regiao; // ignora qualquer tentativa de mudar a região pelo formulário
+        }
+
         // 🟢 NOVO: Impede que a edição deixe a matrícula duplicada com outro militar
         // Compara só os dígitos, então "950855-4" e "9508554" contam como a mesma matrícula.
         if (matricula && matricula.trim() !== '') {
@@ -411,8 +452,21 @@ app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
 // 4. EXCLUIR USUÁRIO
 app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
+    const ehMaster = req.usuario.permissao === 'Master';
 
     try {
+        // 🟢 NOVO: Isolamento por região. Quem não é Master só pode excluir
+        // militar que pertença à própria região.
+        if (!ehMaster) {
+            const alvoResult = await db.query('SELECT regiao FROM usuarios WHERE id = $1', [id]);
+            if (alvoResult.rows.length === 0) {
+                return res.status(404).json({ erro: 'Militar não encontrado.' });
+            }
+            if (alvoResult.rows[0].regiao !== req.usuario.regiao) {
+                return res.status(403).json({ erro: 'Acesso negado: este militar não pertence à sua região.' });
+            }
+        }
+
         await Usuario.excluir(id);
         return res.status(200).json({ mensagem: 'Usuário excluído permanentemente.' });
     } catch (erro) {
