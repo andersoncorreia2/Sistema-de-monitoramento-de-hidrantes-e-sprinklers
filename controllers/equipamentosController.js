@@ -29,8 +29,10 @@ function ajustarFusoHorario(dataNuvem) {
 // Rota para o Frontend buscar todos os equipamentos e plotar no mapa
 router.get('/listar', async (req, res) => {
     try {
-        // 1. Busca os dados reais e a telemetria cruzada no PostgreSQL
-        const equipamentosDoBanco = await Equipamento.listarTodos();
+        // 🟢 NOVO: Isolamento por região. Master vê tudo; qualquer outro
+        // (Comando, Supervisor, Operador) só vê equipamentos da própria região.
+        const ehMaster = req.usuario.permissao === 'Master';
+        const equipamentosDoBanco = await Equipamento.listarTodos(ehMaster ? null : req.usuario.regiao);
         
         // 2. Formatação fiel ao seu frontend
         const equipamentosFormatados = equipamentosDoBanco.map(eq => {
@@ -77,11 +79,16 @@ router.get('/proximos', async (req, res) => {
             return res.status(400).json({ erro: 'Latitude e longitude da viatura são obrigatórias.' });
         }
 
+        // 🟢 NOVO: Isolamento por região. A guarnição só pode usar hidrante da
+        // própria região (o token tático já carrega a região do turno assumido).
+        const ehMaster = req.usuario.permissao === 'Master';
+        const regiaoFiltro = ehMaster ? null : req.usuario.regiao;
+
         // 1. Busca a lista com as distâncias do GPS (mas que não tem a telemetria)
-        const equipamentosComDistancia = await Equipamento.buscarProximos(Number(lat), Number(lng));
+        const equipamentosComDistancia = await Equipamento.buscarProximos(Number(lat), Number(lng), regiaoFiltro);
         
         // 2. Busca a lista completa (a mesma do painel) que TEM a telemetria atualizada
-        const todosComTelemetria = await Equipamento.listarTodos();
+        const todosComTelemetria = await Equipamento.listarTodos(regiaoFiltro);
 
         // 3. 🛡️ O FILTRO TÁTICO CRUZADO
         const hidrantesAptos = equipamentosComDistancia.filter(eqDist => {

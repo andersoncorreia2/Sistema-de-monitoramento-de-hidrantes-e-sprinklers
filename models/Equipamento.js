@@ -2,7 +2,15 @@ const db = require('../config/db');
 
 const Equipamento = {
     // 1. Busca todos os equipamentos E a última leitura de cada um
-    listarTodos: async () => {
+    // 🟢 NOVO: aceita filtro opcional de região. null/undefined (Master) traz tudo;
+    // uma string de região traz só os equipamentos daquela região.
+    listarTodos: async (regiaoFiltro) => {
+        const params = [];
+        let filtroRegiao = '';
+        if (regiaoFiltro) {
+            filtroRegiao = 'WHERE e.regiao = $1';
+            params.push(regiaoFiltro);
+        }
         const query = `
             SELECT 
                 e.id_equipamento AS id,
@@ -37,9 +45,10 @@ const Equipamento = {
                 WHERE id_equipamento = e.id_equipamento 
                 ORDER BY data_hora DESC LIMIT 1
             ) ls ON e.tipo = 'Sprinkler'
+            ${filtroRegiao}
             ORDER BY e.id_equipamento ASC;
         `;
-        const resultado = await db.query(query);
+        const resultado = await db.query(query, params);
         return resultado.rows;
     },
 
@@ -49,7 +58,15 @@ const Equipamento = {
     },
 
     // 3. Busca os hidrantes mais próximos de uma coordenada (Fórmula de Haversine para o App Mobile)
-    buscarProximos: async (latViatura, lngViatura) => {
+    // 🟢 NOVO: aceita filtro opcional de região, pra a guarnição só ver hidrante
+    // da própria região, mesmo que um de outra região esteja geograficamente mais perto.
+    buscarProximos: async (latViatura, lngViatura, regiaoFiltro) => {
+        const params = [latViatura, lngViatura];
+        let filtroRegiao = '';
+        if (regiaoFiltro) {
+            filtroRegiao = 'AND regiao = $3';
+            params.push(regiaoFiltro);
+        }
         const query = `
             SELECT 
                 id_equipamento AS id, 
@@ -61,11 +78,11 @@ const Equipamento = {
                 * cos( radians( longitude ) - radians($2) ) 
                 + sin( radians($1) ) * sin( radians( latitude ) ) ) ) AS distancia_km
             FROM equipamentos 
-            WHERE tipo = 'Hidrante' 
+            WHERE tipo = 'Hidrante' ${filtroRegiao}
             ORDER BY distancia_km ASC 
             LIMIT 5;
         `;
-        const resultado = await db.query(query, [latViatura, lngViatura]);
+        const resultado = await db.query(query, params);
         return resultado.rows;
     }
 }; // Fim do objeto Equipamento
