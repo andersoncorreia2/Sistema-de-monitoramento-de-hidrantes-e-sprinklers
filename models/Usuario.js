@@ -15,22 +15,10 @@ const Usuario = {
     },
 
     // 2. Lista todos os militares
-    // 🟢 NOVO: aceita um filtro opcional de região. Passe null/undefined (Master)
-    // para trazer todo mundo, ou uma string de região para trazer só quem é dela.
-    listarTodos: async (regiaoFiltro) => {
+    listarTodos: async () => {
         // [CÓDIGO ATUALIZADO PELO RITO DE BLINDAGEM OPERACIONAL]
         // Incluindo a coluna 'regiao' (alias regiao_atuacao) para visualização na tabela central.
         // Correção das colunas oficiais: login->usuario, cargo->funcao
-        if (regiaoFiltro) {
-            const query = `
-                SELECT id, usuario as login, email, telefone, funcao as cargo, posto_grad, matricula, 
-                       regiao as regiao_atuacao 
-                FROM usuarios WHERE regiao = $1 ORDER BY id ASC
-            `;
-            const { rows } = await db.query(query, [regiaoFiltro]);
-            return rows;
-        }
-
         const query = `
             SELECT id, usuario as login, email, telefone, funcao as cargo, posto_grad, matricula, 
                    regiao as regiao_atuacao 

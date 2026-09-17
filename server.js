@@ -22,29 +22,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('views'));
 const jwt = require('jsonwebtoken');
 const CHAVE_SECRETA = process.env.CHAVE_SECRETA;
-// ==========================================
-// CONTROLE DE LICENÇA (Gestor Master / Contrato do Estado)
-// ==========================================
-// O Gestor Master é quem vende/mantém o SIMI — não pertence à corporação.
-// Se o contrato expirar ou for suspenso pelo Master, o serviço para de responder
-// pra todo mundo, menos pro próprio Master (que é quem administra essa trava).
-async function licencaEstaAtiva() {
-    try {
-        const resultado = await db.query('SELECT status, data_fim FROM licenca_sistema ORDER BY id DESC LIMIT 1');
-        if (resultado.rows.length === 0) return true; // Nenhuma licença cadastrada ainda: não bloqueia
-        const licenca = resultado.rows[0];
-        if (licenca.status !== 'ativo') return false;
-        if (new Date(licenca.data_fim) < new Date()) return false;
-        return true;
-    } catch (erro) {
-        // Se a tabela ainda não existir ou der erro de infraestrutura, não trava o sistema por isso.
-        console.error('⚠️ Erro ao verificar licença (a tabela licenca_sistema existe?):', erro.message);
-        return true;
-    }
-}
-
 // Middleware de Cibersegurança
-async function protegerRota(req, res, next) {
+function protegerRota(req, res, next) {
     // Busca o token no cabeçalho da requisição enviada pelo painel ou sensor
     const token = req.headers['authorization'];
     
@@ -59,14 +38,6 @@ async function protegerRota(req, res, next) {
         // Verifica se o token é válido e foi gerado pela sua API
         const decodificado = jwt.verify(tokenLimpo, CHAVE_SECRETA);
         req.usuario = decodificado; // Salva quem está acessando
-
-        // 🟢 NOVO: bloqueia todo mundo, exceto o Master, se a licença estiver expirada/suspensa
-        if (decodificado.permissao !== 'Master') {
-            const ativa = await licencaEstaAtiva();
-            if (!ativa) {
-                return res.status(403).json({ erro: 'Serviço suspenso: a licença do SIMI está expirada ou inativa. Contate o suporte para renovação.' });
-            }
-        }
         
         next(); // Tudo certo! Permite que a rota seja executada
     } catch (erro) {
@@ -92,12 +63,11 @@ app.post('/login', async (req, res) => {
             return res.status(401).json({ erro: 'Acesso negado: Credenciais inválidas.' });
         }
 
-        // 🟢 NOVO: Se não for Master, checa se a licença do SIMI ainda está ativa
-        if (usuarioLogado.cargo !== 'Master') {
-            const ativa = await licencaEstaAtiva();
-            if (!ativa) {
-                return res.status(403).json({ erro: 'Acesso negado: a licença do SIMI está expirada ou suspensa. Contate o suporte para renovação.' });
-            }
+        // 👇 AQUI ESTÁ A BLINDAGEM: Trava o Chefe de Guarnição fora do Painel Web
+        const cargoDoMilitar = String(usuarioLogado.cargo || usuarioLogado.funcao || '');
+        
+        if (cargoDoMilitar.includes('Chefe')) {
+            return res.status(403).json({ erro: 'Acesso restrito à Rua. Utilize o AppViatura no celular/tablet para assumir o serviço.' });
         }
 
         const tokenOficial = jwt.sign(
@@ -106,8 +76,7 @@ app.post('/login', async (req, res) => {
                 login: usuarioLogado.login,
                 permissao: usuarioLogado.cargo,
                 posto: usuarioLogado.posto_grad,
-                matricula: usuarioLogado.matricula,
-                regiao: usuarioLogado.regiao
+                matricula: usuarioLogado.matricula
             }, 
             CHAVE_SECRETA, 
             { expiresIn: '8h' }
@@ -180,12 +149,6 @@ app.post('/validar-turno', async (req, res) => {
             });
         }
 
-        // 🟢 NOVO: Chefe de Guarnição nunca é Master — checa se a licença do SIMI está ativa
-        const ativa = await licencaEstaAtiva();
-        if (!ativa) {
-            return res.status(403).json({ erro: 'Serviço suspenso: a licença do SIMI está expirada ou inativa. Contate o comando para mais informações.' });
-        }
-
         // 🟢 NOVO: Valida se a região do militar é a mesma do código de turno informado
         if (militar.regiao !== infoTurno.regiao_simi) {
             return res.status(403).json({
@@ -224,11 +187,7 @@ app.post('/validar-turno', async (req, res) => {
 // ROTA: Gerar Código de Turno (Painel Central SIMI)
 // ==========================================
 app.post('/gerar-codigo-turno', protegerRota, async (req, res) => {
-    const { carga_horaria } = req.body;
-    const ehMaster = req.usuario.permissao === 'Master';
-    // 🟢 NOVO: quem não é Master só pode gerar código pra própria região,
-    // não importa o que o formulário tenha enviado.
-    const regiao_simi = ehMaster ? req.body.regiao_simi : req.usuario.regiao;
+    const { regiao_simi, carga_horaria } = req.body;
 
     if (!regiao_simi || !carga_horaria) {
         return res.status(400).json({ erro: 'Região e carga horária são obrigatórias.' });
@@ -376,26 +335,20 @@ app.use('/notificar', protegerRota, notificacaoController);
 
 // 1. CADASTRAR NOVO USUÁRIO
 app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
-    const { login, senha, email, telefone, cargo, posto_grad, matricula } = req.body;
-    const ehMaster = req.usuario.permissao === 'Master';
+    // 🟢 Extraindo a 'regiao' do frontend
+    const { login, senha, email, telefone, cargo, posto_grad, matricula, regiao } = req.body;
 
     if (!login || !senha || !cargo) {
         return res.status(400).json({ erro: 'Login, senha e cargo são obrigatórios.' });
     }
 
-    // 🟢 NOVO: Só um Master pode criar outro usuário Master
-    if (cargo === 'Master' && !ehMaster) {
-        return res.status(403).json({ erro: 'Acesso negado: só um gestor Master pode criar outro Master.' });
-    }
-
     try {
-        const userExiste = await Usuario.buscarPorLogin(login);
-        if (userExiste) {
+        const userExiste = await db.query('SELECT id FROM usuarios WHERE usuario = $1', [login]);
+        if (userExiste.rows.length > 0) {
             return res.status(400).json({ erro: 'Este nome de Guerra/Login já está em uso.' });
         }
 
-        // 🟢 NOVO: Impede duas matrículas iguais (evita duplicidade em logins do AppViatura)
-        // Compara só os dígitos, então "950855-4" e "9508554" contam como a mesma matrícula.
+        // Impede duas matrículas iguais (evita duplicidade em logins do AppViatura)
         if (matricula && matricula.trim() !== '') {
             const matriculaExiste = await db.query(
                 `SELECT id FROM usuarios WHERE regexp_replace(matricula, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND matricula IS NOT NULL AND matricula != ''`,
@@ -406,14 +359,12 @@ app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
             }
         }
 
-        // 🟢 NOVO: Isolamento por região. Quem não é Master só pode cadastrar
-        // militar na própria região, não importa o que o formulário tenha enviado.
-        const dadosParaCadastro = { ...req.body };
-        if (!ehMaster) {
-            dadosParaCadastro.regiao = req.usuario.regiao;
-        }
+        // 🟢 GRAVAÇÃO DIRETA: Forçando a coluna 'regiao' no banco de dados
+        await db.query(
+            'INSERT INTO usuarios (usuario, senha_hash, email, telefone, funcao, posto_grad, matricula, regiao) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+            [login, String(senha), email, telefone, cargo, posto_grad, matricula, regiao]
+        );
 
-        await Usuario.cadastrar(dadosParaCadastro);
         return res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso!' });
     } catch (erro) {
         console.error('Erro ao cadastrar usuário:', erro);
@@ -424,11 +375,11 @@ app.post('/cadastrar-usuario', protegerRota, async (req, res) => {
 // 2. LISTAR TODOS OS USUÁRIOS
 app.get('/listar-usuarios', protegerRota, async (req, res) => {
     try {
-        // 🟢 NOVO: Isolamento por região. Master vê tudo; qualquer outro cargo
-        // só vê militares da própria região (ex: Comando do Agreste não vê o Sertão).
-        const ehMaster = req.usuario.permissao === 'Master';
-        const usuarios = await Usuario.listarTodos(ehMaster ? null : req.usuario.regiao);
-        return res.status(200).json(usuarios);
+        // 🟢 BUSCA DIRETA: Puxando a 'regiao' e formatando os nomes para o frontend entender perfeitamente
+        const resultado = await db.query(
+            'SELECT id, usuario AS login, email, telefone, funcao AS cargo, posto_grad, matricula, regiao FROM usuarios ORDER BY id ASC'
+        );
+        return res.status(200).json(resultado.rows);
     } catch (erro) {
         console.error('Erro ao listar usuários:', erro);
         return res.status(500).json({ erro: 'Falha ao buscar usuários no banco de dados.' });
@@ -438,31 +389,10 @@ app.get('/listar-usuarios', protegerRota, async (req, res) => {
 // 3. EDITAR/ATUALIZAR USUÁRIO EXISTENTE
 app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
-    const { login, email, telefone, cargo, posto_grad, matricula, senha } = req.body;
-    let { regiao } = req.body;
-    const ehMaster = req.usuario.permissao === 'Master';
-
-    // 🟢 NOVO: Só um Master pode promover alguém a Master
-    if (cargo === 'Master' && !ehMaster) {
-        return res.status(403).json({ erro: 'Acesso negado: só um gestor Master pode conceder o cargo Master.' });
-    }
+    // 🟢 Capturando a regiao no momento da edição
+    const { login, email, telefone, cargo, posto_grad, matricula, regiao, senha } = req.body;
 
     try {
-        // 🟢 NOVO: Isolamento por região. Quem não é Master só pode editar
-        // militar que já é da própria região, e não pode mudar a região dele.
-        if (!ehMaster) {
-            const alvoResult = await db.query('SELECT regiao FROM usuarios WHERE id = $1', [id]);
-            if (alvoResult.rows.length === 0) {
-                return res.status(404).json({ erro: 'Militar não encontrado.' });
-            }
-            if (alvoResult.rows[0].regiao !== req.usuario.regiao) {
-                return res.status(403).json({ erro: 'Acesso negado: este militar não pertence à sua região.' });
-            }
-            regiao = req.usuario.regiao; // ignora qualquer tentativa de mudar a região pelo formulário
-        }
-
-        // 🟢 NOVO: Impede que a edição deixe a matrícula duplicada com outro militar
-        // Compara só os dígitos, então "950855-4" e "9508554" contam como a mesma matrícula.
         if (matricula && matricula.trim() !== '') {
             const matriculaExiste = await db.query(
                 `SELECT id FROM usuarios WHERE regexp_replace(matricula, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND matricula IS NOT NULL AND matricula != '' AND id != $2`,
@@ -473,7 +403,7 @@ app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
             }
         }
 
-        // Correção das colunas para os nomes oficiais da nuvem: usuario, funcao, senha_hash
+        // 🟢 Salvando a 'regiao' atualizada
         if (senha && senha.trim() !== '') {
             await db.query(
                 'UPDATE usuarios SET usuario=$1, email=$2, telefone=$3, funcao=$4, posto_grad=$5, matricula=$6, regiao=$7, senha_hash=$8 WHERE id=$9',
@@ -495,65 +425,13 @@ app.put('/editar-usuario/:id', protegerRota, async (req, res) => {
 // 4. EXCLUIR USUÁRIO
 app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
     const { id } = req.params;
-    const ehMaster = req.usuario.permissao === 'Master';
 
     try {
-        // 🟢 NOVO: Isolamento por região. Quem não é Master só pode excluir
-        // militar que pertença à própria região.
-        if (!ehMaster) {
-            const alvoResult = await db.query('SELECT regiao FROM usuarios WHERE id = $1', [id]);
-            if (alvoResult.rows.length === 0) {
-                return res.status(404).json({ erro: 'Militar não encontrado.' });
-            }
-            if (alvoResult.rows[0].regiao !== req.usuario.regiao) {
-                return res.status(403).json({ erro: 'Acesso negado: este militar não pertence à sua região.' });
-            }
-        }
-
         await Usuario.excluir(id);
         return res.status(200).json({ mensagem: 'Usuário excluído permanentemente.' });
     } catch (erro) {
         console.error('Erro ao excluir usuário:', erro);
         return res.status(500).json({ erro: 'Falha ao excluir o usuário do banco.' });
-    }
-});
-
-// ==========================================
-// ROTAS DE LICENÇA (Somente Gestor Master pode alterar)
-// ==========================================
-
-// Qualquer usuário autenticado pode ver o status da licença (ex: mostrar aviso no painel)
-app.get('/licenca', protegerRota, async (req, res) => {
-    try {
-        const resultado = await db.query('SELECT estado_nome, data_inicio, data_fim, status, observacao FROM licenca_sistema ORDER BY id DESC LIMIT 1');
-        return res.status(200).json(resultado.rows[0] || null);
-    } catch (erro) {
-        console.error('Erro ao buscar licença:', erro);
-        return res.status(500).json({ erro: 'Erro ao consultar a licença. A tabela licenca_sistema existe?' });
-    }
-});
-
-// Só o Master pode suspender ou renovar a licença (encerrar ou estender o contrato)
-app.put('/licenca', protegerRota, async (req, res) => {
-    if (req.usuario.permissao !== 'Master') {
-        return res.status(403).json({ erro: 'Acesso negado: só o gestor Master pode alterar a licença.' });
-    }
-
-    const { data_fim, status, observacao } = req.body;
-
-    try {
-        await db.query(
-            `UPDATE licenca_sistema 
-             SET data_fim = COALESCE($1, data_fim), 
-                 status = COALESCE($2, status), 
-                 observacao = COALESCE($3, observacao)
-             WHERE id = (SELECT id FROM licenca_sistema ORDER BY id DESC LIMIT 1)`,
-            [data_fim || null, status || null, observacao || null]
-        );
-        return res.status(200).json({ mensagem: 'Licença atualizada com sucesso.' });
-    } catch (erro) {
-        console.error('Erro ao atualizar licença:', erro);
-        return res.status(500).json({ erro: 'Erro ao atualizar a licença. A tabela licenca_sistema existe?' });
     }
 });
 

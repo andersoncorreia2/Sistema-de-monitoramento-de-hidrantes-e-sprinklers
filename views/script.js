@@ -346,19 +346,31 @@ function showApp() {
         }
     }
 
-    const token = localStorage.getItem('authToken');
-    const infoDisplay = document.getElementById('user-info-display');
-    if (token && infoDisplay) {
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const posto = payload.posto ? `${payload.posto} ` : '';
-            const nomeGuerra = payload.login || '';
-            const matricula = payload.matricula ? ` (Mat: ${payload.matricula})` : '';
-            infoDisplay.textContent = `👮 ${posto}${nomeGuerra}${matricula}`;
-            infoDisplay.style.display = 'inline-block';
-        } catch (e) {
-            infoDisplay.style.display = 'none';
-        }
+    // ========================================== 
+    // EXIBIR IDENTIFICAÇÃO DO MILITAR LOGADO 
+    // ========================================== 
+    const token = localStorage.getItem('authToken'); 
+    const infoDisplay = document.getElementById('user-info-display'); 
+    if (token && infoDisplay) { 
+        try { 
+            // Decodificação blindada para preservar o "º" e acentos do banco de dados
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            
+            const payload = JSON.parse(jsonPayload);
+            
+            const posto = payload.posto ? `${payload.posto} ` : ''; 
+            const nomeGuerra = payload.login || ''; 
+            const matricula = payload.matricula ? ` (Mat: ${payload.matricula})` : ''; 
+                        
+            infoDisplay.textContent = `👮 ${posto}${nomeGuerra}${matricula}`; 
+            infoDisplay.style.display = 'inline-block'; 
+        } catch (e) { 
+            infoDisplay.style.display = 'none'; 
+        } 
     }
 
     setTimeout(() => {
@@ -661,6 +673,16 @@ document.getElementById('history-pdf').addEventListener('click', () => {
 document.getElementById('history-xlsx').addEventListener('click', () => { const rows = state.alerts.map(a => ({ 'Data/Hora': a.hora, 'Equipamento': a.equip, 'Localização': a.loc, 'Tipo': a.tipo, 'Mensagem': a.msg })); const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Histórico'); XLSX.writeFile(wb, `historico_alertas_${new Date().toISOString().slice(0, 10)}.xlsx`); });
 
 // ==========================================
+// MONITORES DE REDE (ONLINE / OFFLINE)
+// ==========================================
+window.addEventListener('online', () => {
+    if (typeof connCtl !== 'undefined' && connCtl) connCtl.getContainer().querySelector('.txt').textContent = 'Conexão: Estável';
+});
+window.addEventListener('offline', () => {
+    if (typeof connCtl !== 'undefined' && connCtl) connCtl.getContainer().querySelector('.txt').textContent = 'Conexão: Indisponível';
+});
+
+// ==========================================
 // GESTÃO DE USUÁRIOS E EFETIVO (CRUD)
 // ==========================================
 const modalUsuarios = document.getElementById('modal-usuarios');
@@ -681,34 +703,10 @@ document.getElementById('close-modal-usuarios')?.addEventListener('click', fecha
 document.getElementById('btn-fechar-tabela')?.addEventListener('click', fecharModalGestao);
 window.addEventListener('click', (e) => { if (e.target === modalUsuarios) fecharModalGestao(); });
 
-// 🟢 NOVO: Só mostra a opção "Master" no formulário para quem já é Master logado
-function garantirOpcaoMaster() {
-    const selectCargo = document.getElementById('novo-user-cargo');
-    if (!selectCargo) return;
-    const opcaoExistente = selectCargo.querySelector('option[value="Master"]');
-    let souMaster = false;
-    const token = localStorage.getItem('authToken');
-    if (token) {
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            souMaster = payload.permissao === 'Master';
-        } catch (e) { /* token inválido, ignora */ }
-    }
-    if (souMaster && !opcaoExistente) {
-        const opcao = document.createElement('option');
-        opcao.value = 'Master';
-        opcao.textContent = 'Master (Acesso total - Suporte/Manutenção)';
-        selectCargo.appendChild(opcao);
-    } else if (!souMaster && opcaoExistente) {
-        opcaoExistente.remove();
-    }
-}
-
 document.getElementById('btn-novo-usuario')?.addEventListener('click', () => {
     document.getElementById('edit-user-id').value = ''; 
     formNovoUsuario.reset(); 
     document.getElementById('novo-user-senha').required = true; 
-    garantirOpcaoMaster();
     viewTabela.style.display = 'none';
     viewForm.style.display = 'block';
     document.getElementById('titulo-modal-usuarios').textContent = "Cadastrar Novo Militar";
@@ -756,7 +754,7 @@ async function carregarTabelaUsuarios() {
             }
             if (u.login === usuarioLogado) podeExcluir = false;
 
-            const uData = JSON.stringify({ id: u.id, login: u.login, email: u.email, telefone: u.telefone, posto_grad: u.posto_grad, matricula: u.matricula, regiao_atuacao: u.regiao_atuacao, cargo: u.cargo });
+            const uData = JSON.stringify({ id: u.id, login: u.login, email: u.email, telefone: u.telefone, posto_grad: u.posto_grad, matricula: u.matricula, cargo: u.cargo });
             let btnEditar = podeEditar ? `<button class="btn small" style="background-color: #3b82f6; color: white;" onclick='editarUsuario(${uData})'>✏️ Editar</button>` : `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;">🚫 Editar</button>`;
             let btnExcluir = podeExcluir ? `<button class="btn small danger" onclick="excluirUsuario('${u.id}', '${u.login}')">🗑️ Excluir</button>` : `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;">🚫 Excluir</button>`;
             if (u.login === usuarioLogado) btnExcluir = `<button class="btn small" style="background:#ccc; color:#666; cursor:not-allowed;">🚫 Atual</button>`;
@@ -776,9 +774,11 @@ window.editarUsuario = function(u) {
     document.getElementById('novo-user-tel').value = u.telefone || '';
     document.getElementById('novo-user-posto').value = u.posto_grad || '';
     document.getElementById('novo-user-mat').value = u.matricula || '';
-    document.getElementById('novo-user-regiao').value = u.regiao_atuacao || '';
-    garantirOpcaoMaster();
     document.getElementById('novo-user-cargo').value = u.cargo;
+    
+    // 👇 AQUI: Carrega a região do banco para a tela visual
+    const campoRegiao = document.getElementById('novo-user-regiao');
+    if (campoRegiao) campoRegiao.value = u.regiao || '';
     
     const campoSenha = document.getElementById('novo-user-senha');
     campoSenha.value = ''; campoSenha.required = false; 
@@ -809,7 +809,10 @@ if (formNovoUsuario) {
         const cargo = document.getElementById('novo-user-cargo').value;
         const posto_grad = document.getElementById('novo-user-posto').value;
         const matricula = document.getElementById('novo-user-mat').value.trim();
-        const regiao = document.getElementById('novo-user-regiao').value;
+        
+        // 👇 AQUI: Capturando a Região do HTML
+        const campoRegiao = document.getElementById('novo-user-regiao');
+        const regiao = campoRegiao ? campoRegiao.value : null;
 
         const token = localStorage.getItem('authToken');
         const url = id ? `https://api-simi-core.onrender.com/editar-usuario/${id}` : 'https://api-simi-core.onrender.com/cadastrar-usuario';
@@ -821,6 +824,7 @@ if (formNovoUsuario) {
             const resposta = await fetch(url, {
                 method: method,
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                // 👇 AQUI: Incluindo a 'regiao' no pacote final!
                 body: JSON.stringify({ login, senha, email, telefone, cargo, posto_grad, matricula, regiao })
             });
             const dados = await resposta.json();
@@ -844,25 +848,6 @@ document.getElementById('btn-abrir-despacho')?.addEventListener('click', () => {
     
     document.getElementById('titulo-modal-usuarios').textContent = "Despacho Operacional";
     document.getElementById('resultado-codigo').style.display = 'none'; // Esconde o resultado anterior
-
-    // 🟢 NOVO: Quem não é Master só pode gerar código pra própria região —
-    // trava o select mostrando já a região certa, pra não gerar confusão.
-    const selectRegiao = document.getElementById('select-regiao-turno');
-    let souMaster = false, minhaRegiao = '';
-    const token = localStorage.getItem('authToken');
-    if (token) {
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            souMaster = payload.permissao === 'Master';
-            minhaRegiao = payload.regiao || '';
-        } catch (err) { /* token inválido, ignora */ }
-    }
-    if (selectRegiao && !souMaster) {
-        if (minhaRegiao) selectRegiao.value = minhaRegiao;
-        selectRegiao.disabled = true;
-    } else if (selectRegiao) {
-        selectRegiao.disabled = false;
-    }
 });
 
 // Evento para o botão de voltar (que adicionamos no HTML)

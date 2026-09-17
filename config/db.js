@@ -11,6 +11,11 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false } // OBRIGATÓRIO: Libera a conexão segura com o Supabase
 });
 
+// Amortecedor de quedas de conexão em segundo plano
+pool.on('error', (err, client) => {
+    console.error('⚠️ Oscilação de rede com o Supabase detectada e amortecida:', err.message);
+});
+
 // OBRIGATÓRIO: Exporta a função query para o resto do sistema poder usar
 module.exports = {
     query: (text, params) => pool.query(text, params),
