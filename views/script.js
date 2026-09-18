@@ -339,10 +339,45 @@ function showApp() {
     const btnGerenciar = document.getElementById('btn-gerenciar-usuarios');
         
     if (btnGerenciar) {
-        if (cargo === 'Comando' || cargo === 'Supervisor') {
+        // Master também gerencia os usuários do estado inteiro
+        if (cargo === 'Comando' || cargo === 'Supervisor' || cargo === 'Master') {
             btnGerenciar.style.display = 'inline-block';
         } else {
             btnGerenciar.style.display = 'none';
+        }
+    }
+
+    // 🟢 BOTÃO EXCLUSIVO DO GESTOR MASTER
+    if (cargo === 'Master') {
+        let btnLicenca = document.getElementById('btn-licenca-master');
+        if (!btnLicenca) {
+            btnLicenca = document.createElement('button');
+            btnLicenca.id = 'btn-licenca-master';
+            btnLicenca.className = 'btn';
+            btnLicenca.style.backgroundColor = '#9333ea';
+            btnLicenca.style.color = 'white';
+            btnLicenca.style.marginRight = '8px';
+            btnLicenca.innerHTML = '🔑 Licença';
+            
+            const actionsDiv = document.querySelector('.app-header .actions');
+            actionsDiv.insertBefore(btnLicenca, document.getElementById('logout-btn'));
+
+            btnLicenca.addEventListener('click', async () => {
+                const statusAtual = confirm("PAINEL GESTOR MASTER\n\n[OK] para ATIVAR a licença do SIMI.\n[Cancelar] para SUSPENDER o acesso do estado.");
+                const token = localStorage.getItem('authToken');
+                
+                try {
+                    const resposta = await fetch('https://api-simi-core.onrender.com/licenca/alterar-status', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ status_ativa: statusAtual })
+                    });
+                    const dados = await resposta.json();
+                    toast(dados.mensagem || dados.erro);
+                } catch (e) {
+                    toast('⚠️ Falha de comunicação com o servidor de licenciamento.');
+                }
+            });
         }
     }
 

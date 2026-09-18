@@ -29,8 +29,20 @@ function ajustarFusoHorario(dataNuvem) {
 // Rota para o Frontend buscar todos os equipamentos e plotar no mapa
 router.get('/listar', async (req, res) => {
     try {
-        // 1. Busca os dados reais e a telemetria cruzada no PostgreSQL
-        const equipamentosDoBanco = await Equipamento.listarTodos();
+        // 👇 NOVA LÓGICA DE ISOLAMENTO
+        const permissao = req.usuario.permissao;
+        const regiaoMilitar = req.usuario.regiao;
+        let equipamentosDoBanco = [];
+
+        // 🛡️ ISOLAMENTO: O Master vê o Estado todo, os outros vêem só a sua região
+        if (permissao === 'Master') {
+            equipamentosDoBanco = await Equipamento.listarTodos();
+        } else {
+            if (!regiaoMilitar) {
+                 return res.status(400).json({ erro: 'Seu perfil não possui uma região definida para plotar o mapa.' });
+            }
+            equipamentosDoBanco = await Equipamento.listarPorRegiao(regiaoMilitar);
+        }
         
         // 2. Formatação fiel ao seu frontend
         const equipamentosFormatados = equipamentosDoBanco.map(eq => {

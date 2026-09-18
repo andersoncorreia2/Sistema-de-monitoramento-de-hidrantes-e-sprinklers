@@ -63,9 +63,25 @@ app.post('/login', async (req, res) => {
             return res.status(401).json({ erro: 'Acesso negado: Credenciais inválidas.' });
         }
 
-        // 👇 AQUI ESTÁ A BLINDAGEM: Trava o Chefe de Guarnição fora do Painel Web
         const cargoDoMilitar = String(usuarioLogado.cargo || usuarioLogado.funcao || '');
-        
+
+        // 🟢 TRAVA DE LICENÇA (KILL SWITCH)
+        // Se NÃO for o Gestor Master, verifica se o estado está com a licença ativa
+        if (cargoDoMilitar !== 'Master') {
+            try {
+                // Tenta buscar o status na tabela licenca_sistema
+                const licenca = await db.query('SELECT status_ativa FROM licenca_sistema LIMIT 1');
+                
+                // Se a tabela existe e a licença for falsa, bloqueia o acesso
+                if (licenca.rows.length > 0 && licenca.rows[0].status_ativa === false) {
+                    return res.status(403).json({ erro: 'Acesso suspenso. A licença do sistema expirou ou está inativa. Contate o suporte.' });
+                }
+            } catch (e) {
+                console.error('Tabela de licença não configurada no banco.');
+            }
+        }
+
+        // AQUI ESTÁ A BLINDAGEM: Trava o Chefe de Guarnição fora do Painel Web
         if (cargoDoMilitar.includes('Chefe')) {
             return res.status(403).json({ erro: 'Acesso restrito à Rua. Utilize o AppViatura no celular/tablet para assumir o serviço.' });
         }
@@ -74,9 +90,10 @@ app.post('/login', async (req, res) => {
             { 
                 corporacao: 'SIMI', 
                 login: usuarioLogado.login,
-                permissao: usuarioLogado.cargo,
+                permissao: cargoDoMilitar,
                 posto: usuarioLogado.posto_grad,
-                matricula: usuarioLogado.matricula
+                matricula: usuarioLogado.matricula,
+                regiao: usuarioLogado.regiao // <-- O SEGREDO DO ISOLAMENTO REGIONAL É AQUI
             }, 
             CHAVE_SECRETA, 
             { expiresIn: '8h' }
@@ -435,6 +452,25 @@ app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
     } catch (erro) {
         console.error('Erro ao excluir usuário:', erro);
         return res.status(500).json({ erro: 'Falha ao excluir o usuário do banco.' });
+    }
+});
+
+// ==========================================
+// ROTA DO GESTOR MASTER: Ativar/Suspender Licença do Estado
+// ==========================================
+app.post('/licenca/alterar-status', protegerRota, async (req, res) => {
+    if (req.usuario.permissao !== 'Master') {
+        return res.status(403).json({ erro: 'Acesso negado. Comando exclusivo do Gestor Master do Sistema.' });
+    }
+    
+    const { status_ativa } = req.body;
+    try {
+        await db.query('UPDATE licenca_sistema SET status_ativa = $1', [status_ativa]);
+        return res.status(200).json({ 
+            mensagem: status_ativa ? '✅ Sistema reativado. Acessos liberados.' : '⛔ Sistema SUSPENSO. Acesso militar bloqueado.' 
+        });
+    } catch (erro) {
+        return res.status(500).json({ erro: 'Falha ao alterar o status da licença no banco de dados.' });
     }
 });
 
