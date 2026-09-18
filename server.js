@@ -143,7 +143,10 @@ app.post('/validar-turno', async (req, res) => {
 
         const militar = resultMilitar.rows[0];
 
-        if (militar.funcao !== 'Chefe de Guarnicao') {
+        // 🟢 Correção Tática: Flexibiliza a leitura do cargo, ignorando os acentos
+        const cargoDoMilitar = String(militar.funcao || '').replace(/[çÇ]/g, 'c').replace(/[ãÃ]/g, 'a');
+
+        if (cargoDoMilitar !== 'Chefe de Guarnicao') {
             return res.status(403).json({
                 erro: 'Acesso negado: Esta matrícula não possui permissão de Chefe de Guarnição para o AppViatura.'
             });
