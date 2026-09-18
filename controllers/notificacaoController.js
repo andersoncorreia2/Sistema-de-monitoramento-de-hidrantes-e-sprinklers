@@ -55,64 +55,33 @@ router.post('/enviar-alerta', async (req, res) => {
         // 🟢 Prioriza Content Template aprovado (produção). Se não houver template
         // configurado, cai para mensagem de texto livre (só funciona no Sandbox
         // dentro da janela de 72h de opt-in do destinatário).
+// 2. Disparo por WhatsApp via Twilio
 if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && responsavel.tel) {
     try {
         const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-
+        
+        // Limpa o número para garantir que tenha apenas dígitos
         const numTel = responsavel.tel.replace(/\D/g, ''); 
+        
+        // Garante o formato DDI +55
         const destinoWhatsApp = numTel.startsWith('55') ? `whatsapp:+${numTel}` : `whatsapp:+55${numTel}`;
-
-        // Número remetente: em produção use seu número de WhatsApp Business
-        // aprovado (TWILIO_WHATSAPP_FROM). Sem isso, cai no Sandbox de testes.
-        const remetenteWhatsApp = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
 
         console.log(`📲 Tentando enviar WhatsApp para: ${destinoWhatsApp}`);
 
-        const payloadBase = {
-            from: remetenteWhatsApp,
-            to: destinoWhatsApp
-        };
-
-        if (process.env.TWILIO_TEMPLATE_ALERTA_SID) {
-            // 🟢 Envio via Content Template aprovado (funciona fora da janela de
-            // 24h/72h e não exige opt-in prévio do destinatário).
-            // As variáveis abaixo devem corresponder, na mesma ordem, às
-            // variáveis {{1}}, {{2}}, {{3}}, {{4}} definidas no template
-            // criado no Twilio Content Template Builder.
-            await twilioClient.messages.create({
-                ...payloadBase,
-                contentSid: process.env.TWILIO_TEMPLATE_ALERTA_SID,
-                contentVariables: JSON.stringify({
-                    1: String(tipo),
-                    2: String(id_equipamento),
-                    3: String(local),
-                    4: String(falhas)
-                })
-            });
-
-            console.log('✅ Mensagem de WhatsApp (template) enviada com sucesso pela Twilio!');
-        } else {
-            // Fallback: texto livre — só entrega se o destinatário tiver dado
-            // opt-in no Sandbox nas últimas 72h.
-            await twilioClient.messages.create({
-                ...payloadBase,
-                body: mensagemTexto
-            });
-
-            console.log('✅ Mensagem de WhatsApp (texto livre) enviada com sucesso pela Twilio!');
-        }
+        await twilioClient.messages.create({
+            body: mensagemTexto,
+            from: 'whatsapp:+14155238886', // Número padrão do Sandbox da Twilio
+            to: destinoWhatsApp 
+        });
+        
+        console.log('✅ Mensagem de WhatsApp enviada com sucesso pela Twilio!');
     } catch (twErro) {
-        console.error('❌ Erro no Twilio:', twErro.code, twErro.message);
+        // Exibe o erro crítico para diagnóstico
+        console.error('❌ ERRO CRÍTICO NO TWILIO:', twErro.message);
     }
 } else {
-            console.warn('⚠️ Twilio ignorado: Faltam chaves de ambiente ou telefone do responsável.');
-        }
-
-        return res.status(200).json({ mensagem: 'Notificação processada com sucesso!' });
-    } catch (erro) {
-        console.error('Erro geral no sistema de mensageria:', erro);
-        return res.status(500).json({ erro: 'Falha ao enviar notificações via HTTPS.' });
-    }
+    console.warn('⚠️ Twilio ignorado: Faltam chaves de ambiente ou telefone do responsável.');
+}
 });
 
 module.exports = router;
