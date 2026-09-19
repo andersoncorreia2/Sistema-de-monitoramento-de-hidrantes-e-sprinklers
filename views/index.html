@@ -308,6 +308,30 @@
   </div>
 </div>
 
+<!-- Modal de Licença aqui embaixo -->
+<div id="licencaModal" class="modal" style="display: none;">
+  <div class="box" style="max-width: 450px; width: 90%;">
+    <div class="head">
+        <strong>Gerenciamento de Licença do Sistema</strong>
+        <button class="btn ghost" id="licencaClose">✖</button>
+    </div>
+    <div class="body">
+        <p style="font-size: 13px; color: #555; margin-bottom: 15px;">Informe o período de vigência do contrato para atualizar a régua de monitoramento (60, 30, 10 e 5 dias).</p>
+        
+        <label style="display:block; font-weight:bold; margin-bottom:5px;">Data de Início do Contrato:</label>
+        <input type="date" id="input-licenca-inicio" style="width: 100%; padding: 8px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+
+        <label style="display:block; font-weight:bold; margin-bottom:5px;">Data de Vencimento do Contrato:</label>
+        <input type="date" id="input-licenca-fim" style="width: 100%; padding: 8px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+
+        <div style="display: flex; gap: 10px;">
+            <button type="button" class="btn" id="btn-suspender-licenca" style="width: 50%; background-color: #dc2626; color: white; font-weight: bold;">⛔ Suspender</button>
+            <button type="button" class="btn" id="btn-ativar-licenca" style="width: 50%; background-color: #10b981; color: white; font-weight: bold;">✅ Salvar e Ativar</button>
+        </div>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="script.js"></script>

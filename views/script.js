@@ -362,21 +362,10 @@ function showApp() {
             const actionsDiv = document.querySelector('.app-header .actions');
             actionsDiv.insertBefore(btnLicenca, document.getElementById('logout-btn'));
 
-            btnLicenca.addEventListener('click', async () => {
-                const statusAtual = confirm("PAINEL GESTOR MASTER\n\n[OK] para ATIVAR a licença do SIMI.\n[Cancelar] para SUSPENDER o acesso do estado.");
-                const token = localStorage.getItem('authToken');
-                
-                try {
-                    const resposta = await fetch('https://api-simi-core.onrender.com/licenca/alterar-status', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ status_ativa: statusAtual })
-                    });
-                    const dados = await resposta.json();
-                    toast(dados.mensagem || dados.erro);
-                } catch (e) {
-                    toast('⚠️ Falha de comunicação com o servidor de licenciamento.');
-                }
+            // 🟢 ANTES: Aqui tinha o confirm antigo.
+            // 🟢 DEPOIS: Agora ele apenas abre o modal de datas que criamos no HTML:
+            btnLicenca.addEventListener('click', () => {
+                document.getElementById('licencaModal').style.display = 'flex';
             });
         }
     }
@@ -715,6 +704,75 @@ window.addEventListener('online', () => {
 });
 window.addEventListener('offline', () => {
     if (typeof connCtl !== 'undefined' && connCtl) connCtl.getContainer().querySelector('.txt').textContent = 'Conexão: Indisponível';
+});
+
+// ==========================================
+// CONTROLES DO MODAL DE LICENÇA (MASTER)
+// ==========================================
+const licencaModal = document.getElementById('licencaModal');
+const fecharModalLicenca = () => { if (licencaModal) licencaModal.style.display = 'none'; };
+
+document.getElementById('licencaClose')?.addEventListener('click', fecharModalLicenca);
+window.addEventListener('click', (e) => { if (e.target === licencaModal) fecharModalLicenca(); });
+
+// Ação de Ativar/Renovar Licença com Prazos
+document.getElementById('btn-ativar-licenca')?.addEventListener('click', async () => {
+    const dataInicio = document.getElementById('input-licenca-inicio').value;
+    const dataFim = document.getElementById('input-licenca-fim').value;
+
+    if (!dataInicio || !dataFim) {
+        toast('⚠️ Preencha a data de início e de vencimento.');
+        return;
+    }
+
+    const token = localStorage.getItem('authToken');
+    toast('Atualizando vigência da licença...');
+
+    try {
+        const resposta = await fetch('https://api-simi-core.onrender.com/licenca/alterar-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ 
+                status_ativa: true, 
+                data_inicio: dataInicio, 
+                data_fim: dataFim 
+            })
+        });
+        const dados = await resposta.json();
+        if (resposta.ok) {
+            toast('✅ ' + dados.mensagem);
+            fecharModalLicenca();
+        } else {
+            toast('⚠️ Erro: ' + dados.erro);
+        }
+    } catch (e) {
+        toast('⚠️ Falha de comunicação com o servidor.');
+    }
+});
+
+// Ação de Suspender Imediatamente (Kill Switch)
+document.getElementById('btn-suspender-licenca')?.addEventListener('click', async () => {
+    if (!confirm('ATENÇÃO: Deseja realmente suspender o acesso do estado inteiro imediatamente?')) return;
+
+    const token = localStorage.getItem('authToken');
+    toast('Suspendendo sistema...');
+
+    try {
+        const resposta = await fetch('https://api-simi-core.onrender.com/licenca/alterar-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ status_ativa: false })
+        });
+        const dados = await resposta.json();
+        if (resposta.ok) {
+            toast('⛔ ' + dados.mensagem);
+            fecharModalLicenca();
+        } else {
+            toast('⚠️ Erro: ' + dados.erro);
+        }
+    } catch (e) {
+        toast('⚠️ Falha de comunicação com o servidor.');
+    }
 });
 
 // ==========================================

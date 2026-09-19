@@ -456,20 +456,92 @@ app.delete('/excluir-usuario/:id', protegerRota, async (req, res) => {
 });
 
 // ==========================================
-// ROTA DO GESTOR MASTER: Ativar/Suspender Licença do Estado
+// ROTA: Verificar Status e Prazos da Licença (Semáforo Automático)
+// ==========================================
+app.get('/status-licenca', protegerRota, async (req, res) => {
+    try {
+        const resultado = await db.query('SELECT * FROM licenca_sistema LIMIT 1');
+        
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({ erro: 'Nenhuma licença cadastrada.' });
+        }
+
+        const licenca = resultado.rows[0];
+
+        // Se o interruptor geral já estiver falso, bloqueia
+        if (!licenca.status_ativa) {
+            return res.json({ ativa: false, diasRestantes: 0, cor: 'bloqueado' });
+        }
+
+        // Se não houver data fim cadastrada, assume ativa normal
+        if (!licenca.data_fim) {
+            return res.json({ ativa: true, diasRestantes: 999, cor: 'verde', dataFim: null });
+        }
+
+        // Calculando os dias restantes
+        const dataFim = new Date(licenca.data_fim);
+        const hoje = new Date();
+        const diferencaMilissegundos = dataFim - hoje;
+        const diasRestantes = Math.ceil(diferencaMilissegundos / (1000 * 60 * 60 * 24));
+
+        // Bloqueio Automático se o prazo acabou
+        if (diasRestantes <= 0) {
+            await db.query('UPDATE licenca_sistema SET status_ativa = FALSE');
+            return res.json({ ativa: false, diasRestantes: 0, cor: 'bloqueado' });
+        }
+
+        // Régua de Cores: 60 (verde), 30 (amarelo), 10 (vermelho), 5 (crítico)
+        let corDoAviso = 'verde';
+        if (diasRestantes <= 5) {
+            corDoAviso = 'critico';
+        } else if (diasRestantes <= 10) {
+            corDoAviso = 'vermelho';
+        } else if (diasRestantes <= 30) {
+            corDoAviso = 'amarelo';
+        } else {
+            corDoAviso = 'verde';
+        }
+
+        return res.json({
+            ativa: true,
+            diasRestantes: diasRestantes,
+            cor: corDoAviso,
+            dataFim: licenca.data_fim
+        });
+
+    } catch (erro) {
+        console.error('Erro ao verificar licença:', erro);
+        return res.status(500).json({ erro: 'Erro ao consultar licença no banco.' });
+    }
+});
+
+// ==========================================
+// ROTA DO GESTOR MASTER: Atualizar Prazos e Status da Licença
 // ==========================================
 app.post('/licenca/alterar-status', protegerRota, async (req, res) => {
     if (req.usuario.permissao !== 'Master') {
         return res.status(403).json({ erro: 'Acesso negado. Comando exclusivo do Gestor Master do Sistema.' });
     }
     
-    const { status_ativa } = req.body;
+    const { status_ativa, data_inicio, data_fim } = req.body;
+    
     try {
-        await db.query('UPDATE licenca_sistema SET status_ativa = $1', [status_ativa]);
+        if (data_inicio && data_fim) {
+            // Atualiza status e as novas datas do contrato inseridas pelo Master
+            await db.query(
+                'UPDATE licenca_sistema SET status_ativa = $1, data_inicio = $2, data_fim = $3', 
+                [status_ativa, data_inicio, data_fim]
+            );
+        } else {
+            // Apenas atualiza o interruptor de ligar/desligar normal
+            await db.query('UPDATE licenca_sistema SET status_ativa = $1', [status_ativa]);
+        }
+
         return res.status(200).json({ 
-            mensagem: status_ativa ? '✅ Sistema reativado. Acessos liberados.' : '⛔ Sistema SUSPENSO. Acesso militar bloqueado.' 
+            mensagem: status_ativa ? '✅ Sistema reativado com sucesso. Acessos liberados.' : '⛔ Sistema SUSPENSO. Acesso bloqueado.' 
         });
     } catch (erro) {
+        console.error('Erro ao atualizar licença:', erro);
         return res.status(500).json({ erro: 'Falha ao alterar o status da licença no banco de dados.' });
     }
 });
